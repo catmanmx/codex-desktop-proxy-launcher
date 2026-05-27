@@ -34,7 +34,13 @@ This is an unofficial Windows launcher for Codex Desktop. It helps reduce `Recon
 
 ## 使用方法
 
-双击运行：
+如果你下载的是 Release 压缩包，解压后优先双击：
+
+```text
+CodexProxyLauncher.exe
+```
+
+如果你是直接从源码运行，也可以双击：
 
 ```text
 codex-only-proxy-launcher.cmd
@@ -53,6 +59,31 @@ codex-only-proxy-launcher.cmd
 切换代理模式必须重启 Codex，因为 Windows 不能可靠地从外部修改一个已经运行进程的网络环境。正在运行的 Codex 任务会被中断。
 
 本项目不是 OpenAI 官方工具。
+
+## 下载包内容
+
+Release 压缩包内包含：
+
+- `CodexProxyLauncher.exe`：推荐入口，双击即可打开托盘启动器
+- `codex-only-proxy-launcher.ps1`：主程序逻辑
+- `codex-only-proxy-launcher.cmd`：备用启动入口
+- `start-codex-only-proxy-launcher.vbs`：备用安静启动入口
+- `README.md`
+- `LICENSE`
+
+## 本地构建
+
+在 Windows PowerShell 5.1 中运行：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-release.ps1
+```
+
+构建结果会生成在：
+
+```text
+dist/codex-desktop-proxy-launcher-v0.1.0.zip
+```
 
 ## License
 
