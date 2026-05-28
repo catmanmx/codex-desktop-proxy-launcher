@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.1.1
+
+- Add a custom embedded icon for `CodexProxyLauncher.exe`.
+- Keep icon generation inside the build script so release packages are reproducible.
+
 ## v0.1.0
 
 Initial public release.
