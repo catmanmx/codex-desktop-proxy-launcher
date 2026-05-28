@@ -1,5 +1,7 @@
 ﻿param(
-    [switch]$ValidateOnly
+    [switch]$ValidateOnly,
+    [switch]$AutoStartProxy,
+    [int]$AutoStartTimeoutSeconds = 90
 )
 
 #requires -version 5.1
@@ -71,7 +73,7 @@ function Save-Config {
 function T {
     param(
         [string]$Key,
-        [object[]]$Args = @()
+        [object[]]$FormatArgs = @()
     )
 
     $texts = @{
@@ -145,8 +147,8 @@ function T {
         $template = $Key
     }
 
-    if ($Args.Count -gt 0) {
-        return [string]::Format($template, $Args)
+    if ($FormatArgs.Count -gt 0) {
+        return [string]::Format($template, $FormatArgs)
     }
 
     return $template
@@ -155,6 +157,42 @@ function T {
 function Get-ProxyUrl {
     param([int]$Port)
     "http://$script:ProxyHost`:$Port"
+}
+
+function Wait-LocalProxyPort {
+    param(
+        [int]$Port,
+        [int]$TimeoutSeconds = 90
+    )
+
+    $deadline = (Get-Date).AddSeconds([Math]::Max(1, $TimeoutSeconds))
+
+    do {
+        $client = $null
+        $async = $null
+
+        try {
+            $client = New-Object System.Net.Sockets.TcpClient
+            $async = $client.BeginConnect($script:ProxyHost, $Port, $null, $null)
+
+            if ($async.AsyncWaitHandle.WaitOne(1000)) {
+                $client.EndConnect($async)
+                return $true
+            }
+        } catch {
+        } finally {
+            if ($async -and $async.AsyncWaitHandle) {
+                $async.AsyncWaitHandle.Close()
+            }
+            if ($client) {
+                $client.Close()
+            }
+        }
+
+        Start-Sleep -Milliseconds 1000
+    } while ((Get-Date) -lt $deadline)
+
+    return $false
 }
 
 function Find-CodexDesktopExe {
@@ -468,6 +506,14 @@ if ($ValidateOnly) {
 
 $config = Read-Config
 $script:Language = $config.Language
+
+if ($AutoStartProxy) {
+    $autoPort = if ($config.Port -as [int]) { [int]$config.Port } else { $script:DefaultPort }
+    [void](Wait-LocalProxyPort -Port $autoPort -TimeoutSeconds $AutoStartTimeoutSeconds)
+    Stop-CodexProcesses
+    [void](Start-Codex -Port $autoPort -ProxyMode)
+    $config = Read-Config
+}
 
 $form = New-Object System.Windows.Forms.Form
 $form.Text = T "title"

@@ -83,7 +83,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-release.
 构建结果会生成在：
 
 ```text
-dist/codex-desktop-proxy-launcher-v0.1.2.zip
+dist/codex-desktop-proxy-launcher-v0.1.3.zip
 ```
 
 ## License

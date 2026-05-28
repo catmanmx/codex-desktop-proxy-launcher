@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.1.3
+
+- Fix Chinese/English message placeholders like `端口：{0}` not being replaced with the actual port.
+
 ## v0.1.2
 
 - Fix a runtime tray icon crash caused by GDI+ `GetHicon()`.
