@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.1.6
+
+- Fix proxy test false positives caused by counting the local proxy `200 Connection established` handshake as OpenAI connectivity.
+- Proxy test now requires a final HTTP response from `https://api.openai.com`.
+
 ## v0.1.5
 
 - Prevent raw Microsoft .NET Framework exception dialogs from launcher button, menu, and timer events.

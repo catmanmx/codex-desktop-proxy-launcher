@@ -578,7 +578,15 @@ function Test-OpenAIProxy {
 
     try {
         $process = Start-Process -FilePath "curl.exe" `
-            -ArgumentList @("--ssl-no-revoke", "-I", "--max-time", "12", "--proxy", (Get-ProxyUrl $Port), "https://api.openai.com") `
+            -ArgumentList @(
+                "--ssl-no-revoke",
+                "-sS",
+                "-o", "NUL",
+                "-w", "HTTP_CODE:%{http_code}`nEXIT_CODE:%{exitcode}`nERROR:%{errormsg}`n",
+                "--max-time", "15",
+                "--proxy", (Get-ProxyUrl $Port),
+                "https://api.openai.com"
+            ) `
             -WindowStyle Hidden `
             -RedirectStandardOutput $tempOut `
             -RedirectStandardError $tempErr `
@@ -589,7 +597,9 @@ function Test-OpenAIProxy {
         if (Test-Path $tempOut) { $output += Get-Content $tempOut -Raw }
         if (Test-Path $tempErr) { $output += Get-Content $tempErr -Raw }
 
-        if ($output -match "HTTP/\d(\.\d)?\s+(200|401|403|404|421)") {
+        $httpCode = if ($output -match "HTTP_CODE:(\d{3})") { [int]$Matches[1] } else { 0 }
+
+        if ($process.ExitCode -eq 0 -and $httpCode -ge 200 -and $httpCode -lt 500) {
             [System.Windows.Forms.MessageBox]::Show((T "proxy_ok" $Port), (T "title"), "OK", "Information") | Out-Null
         } else {
             [System.Windows.Forms.MessageBox]::Show((T "proxy_unclear" $output), (T "title"), "OK", "Warning") | Out-Null
