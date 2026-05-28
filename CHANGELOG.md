@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.1.5
+
+- Prevent raw Microsoft .NET Framework exception dialogs from launcher button, menu, and timer events.
+- Show launcher-controlled error messages instead of unhandled PowerShell WinForms exceptions.
+
 ## v0.1.4
 
 - Add a per-user Windows startup checkbox.

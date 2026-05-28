@@ -89,6 +89,7 @@ function T {
             proxy_unclear = "没有确认连通。`n`n{0}"
             test_fail = "测试失败：{0}"
             startup_fail = "更新开机启动失败：{0}"
+            unexpected_error = "操作失败：{0}"
             port_label = "代理软件本地端口"
             host_label = "本机地址：127.0.0.1"
             normal_button = "普通模式重启 Codex"
@@ -122,6 +123,7 @@ function T {
             proxy_unclear = "Connectivity was not confirmed.`n`n{0}"
             test_fail = "Test failed: {0}"
             startup_fail = "Failed to update startup setting: {0}"
+            unexpected_error = "Operation failed: {0}"
             port_label = "Proxy app local port"
             host_label = "Host: 127.0.0.1"
             normal_button = "Restart Codex normally"
@@ -163,6 +165,35 @@ function T {
 function Get-ProxyUrl {
     param([int]$Port)
     "http://$script:ProxyHost`:$Port"
+}
+
+function Show-AppError {
+    param([string]$Message)
+
+    try {
+        $body = T "unexpected_error" $Message
+        $caption = T "title"
+    } catch {
+        $body = "操作失败：$Message"
+        $caption = "Codex 专用代理启动器"
+    }
+
+    [System.Windows.Forms.MessageBox]::Show($body, $caption, "OK", "Error") | Out-Null
+}
+
+function Invoke-Safely {
+    param(
+        [scriptblock]$Action,
+        [switch]$Silent
+    )
+
+    try {
+        & $Action
+    } catch {
+        if (-not $Silent) {
+            Show-AppError $_.Exception.Message
+        }
+    }
 }
 
 function Quote-CommandArgument {
@@ -781,18 +812,18 @@ function Invoke-Toggle {
     }
 }
 
-$languageButton.Add_Click({
+$languageButton.Add_Click({ Invoke-Safely {
     $script:Language = if ($script:Language -eq "zh") { "en" } else { "zh" }
     Save-LanguagePreference
     Update-LanguageUi
-})
-$toggleButton.Add_Click({ Invoke-Toggle })
-$normalButton.Add_Click({ Start-NormalMode })
-$testButton.Add_Click({
+} })
+$toggleButton.Add_Click({ Invoke-Safely { Invoke-Toggle } })
+$normalButton.Add_Click({ Invoke-Safely { Start-NormalMode } })
+$testButton.Add_Click({ Invoke-Safely {
     $port = Parse-PortFromTextBox $portBox
     if ($null -ne $port) { Test-OpenAIProxy $port }
-})
-$startupCheckBox.Add_CheckedChanged({
+} })
+$startupCheckBox.Add_CheckedChanged({ Invoke-Safely {
     if ($script:SyncingStartupUi) {
         return
     }
@@ -805,45 +836,45 @@ $startupCheckBox.Add_CheckedChanged({
         $startupCheckBox.Checked = Test-StartupEnabled
         $script:SyncingStartupUi = $false
     }
-})
-$menuToggle.Add_Click({ Invoke-Toggle })
-$menuNormal.Add_Click({ Start-NormalMode })
-$menuTest.Add_Click({
+} })
+$menuToggle.Add_Click({ Invoke-Safely { Invoke-Toggle } })
+$menuNormal.Add_Click({ Invoke-Safely { Start-NormalMode } })
+$menuTest.Add_Click({ Invoke-Safely {
     $port = Parse-PortFromTextBox $portBox
     if ($null -ne $port) { Test-OpenAIProxy $port }
-})
-$menuOpen.Add_Click({
+} })
+$menuOpen.Add_Click({ Invoke-Safely {
     $form.Show()
     $form.WindowState = "Normal"
     $form.Activate()
-})
-$notifyIcon.Add_DoubleClick({
+} })
+$notifyIcon.Add_DoubleClick({ Invoke-Safely {
     $form.Show()
     $form.WindowState = "Normal"
     $form.Activate()
-})
-$menuExit.Add_Click({
+} })
+$menuExit.Add_Click({ Invoke-Safely {
     $script:ExitRequested = $true
     $notifyIcon.Visible = $false
     $notifyIcon.Dispose()
     Dispose-StateIcons
     $form.Close()
-})
+} })
 $form.Add_FormClosing({
     if (-not $script:ExitRequested) {
         $_.Cancel = $true
         $form.Hide()
     }
 })
-$portBox.Add_TextChanged({ Update-Ui })
+$portBox.Add_TextChanged({ Invoke-Safely { Update-Ui } -Silent })
 
 $timer = New-Object System.Windows.Forms.Timer
 $timer.Interval = 2500
-$timer.Add_Tick({ Update-Ui })
+$timer.Add_Tick({ Invoke-Safely { Update-Ui } -Silent })
 $timer.Start()
 
-Update-LanguageUi
+Invoke-Safely { Update-LanguageUi } -Silent
 if ($StartMinimized) {
-    $form.Add_Shown({ $form.Hide() })
+    $form.Add_Shown({ Invoke-Safely { $form.Hide() } -Silent })
 }
 [System.Windows.Forms.Application]::Run($form)
