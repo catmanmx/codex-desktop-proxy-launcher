@@ -30,6 +30,7 @@ This is an unofficial Windows launcher for Codex Desktop. It helps reduce `Recon
 - 可填写本地代理端口
 - 红色/绿色状态显示
 - 中文/英文界面切换
+- 可勾选开机自动打开代理并启动 Codex
 - 支持测试当前端口是否可连通 OpenAI
 
 ## 使用方法
@@ -53,6 +54,7 @@ codex-only-proxy-launcher.cmd
 - `打开代理，并重启 Codex`：关闭当前 Codex，用专用代理模式重新打开
 - `普通模式重启 Codex`：关闭当前 Codex，不带代理重新打开
 - `测试当前端口是否可用`：测试本地代理端口能否访问 OpenAI
+- `开机自动打开代理并启动 Codex`：写入当前用户的 Windows 启动文件夹；下次登录后会等待本地代理端口可用，再用代理模式启动 Codex
 
 ## 注意
 
@@ -83,7 +85,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-release.
 构建结果会生成在：
 
 ```text
-dist/codex-desktop-proxy-launcher-v0.1.3.zip
+dist/codex-desktop-proxy-launcher-v0.1.4.zip
 ```
 
 ## License

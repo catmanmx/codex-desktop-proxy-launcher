@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.1.4
+
+- Add a per-user Windows startup checkbox.
+- Startup mode waits for the configured local proxy port, then starts Codex through the dedicated proxy.
+- Startup mode opens minimized to the tray.
+
 ## v0.1.3
 
 - Fix Chinese/English message placeholders like `端口：{0}` not being replaced with the actual port.

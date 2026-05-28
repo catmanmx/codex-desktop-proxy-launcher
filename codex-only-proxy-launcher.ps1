@@ -1,7 +1,8 @@
 ﻿param(
     [switch]$ValidateOnly,
     [switch]$AutoStartProxy,
-    [int]$AutoStartTimeoutSeconds = 90
+    [int]$AutoStartTimeoutSeconds = 90,
+    [switch]$StartMinimized
 )
 
 #requires -version 5.1
@@ -19,6 +20,7 @@ $script:DefaultPort = 10808
 $script:NoProxy = "localhost,127.0.0.1,::1"
 $script:ExitRequested = $false
 $script:IconCache = @{}
+$script:SyncingStartupUi = $false
 
 function Ensure-StateDir {
     New-Item -ItemType Directory -Force -Path $script:StateDir | Out-Null
@@ -86,10 +88,12 @@ function T {
             proxy_ok = "本地代理可以连通 OpenAI。`n端口：{0}"
             proxy_unclear = "没有确认连通。`n`n{0}"
             test_fail = "测试失败：{0}"
+            startup_fail = "更新开机启动失败：{0}"
             port_label = "代理软件本地端口"
             host_label = "本机地址：127.0.0.1"
             normal_button = "普通模式重启 Codex"
             test_button = "测试当前端口是否可用"
+            startup_checkbox = "开机自动打开代理并启动 Codex"
             hint = "说明：红色表示关闭，绿色表示打开。这个启动器只影响被它重启的 Codex，不改系统代理。切换 VPN 节点不需要动这里，只有代理软件本地端口变了才改端口。"
             menu_open = "打开面板"
             menu_normal = "普通模式重启 Codex"
@@ -117,10 +121,12 @@ function T {
             proxy_ok = "Local proxy can reach OpenAI.`nPort: {0}"
             proxy_unclear = "Connectivity was not confirmed.`n`n{0}"
             test_fail = "Test failed: {0}"
+            startup_fail = "Failed to update startup setting: {0}"
             port_label = "Proxy app local port"
             host_label = "Host: 127.0.0.1"
             normal_button = "Restart Codex normally"
             test_button = "Test current port"
+            startup_checkbox = "Start proxy mode with Windows"
             hint = "Red means off, green means on. This launcher only affects Codex restarted by it and does not change system proxy. You do not need to change this when switching VPN nodes; only update the port if your proxy app local port changes."
             menu_open = "Open panel"
             menu_normal = "Restart Codex normally"
@@ -157,6 +163,72 @@ function T {
 function Get-ProxyUrl {
     param([int]$Port)
     "http://$script:ProxyHost`:$Port"
+}
+
+function Quote-CommandArgument {
+    param([string]$Value)
+    '"' + $Value.Replace('"', '\"') + '"'
+}
+
+function Get-PowerShellPath {
+    $candidate = Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::System)) "WindowsPowerShell\v1.0\powershell.exe"
+    if (Test-Path -LiteralPath $candidate) {
+        return $candidate
+    }
+
+    return "powershell.exe"
+}
+
+function Get-StartupShortcutPath {
+    $startupDir = [Environment]::GetFolderPath([Environment+SpecialFolder]::Startup)
+    Join-Path $startupDir "Codex Proxy Launcher.lnk"
+}
+
+function Test-StartupEnabled {
+    Test-Path -LiteralPath (Get-StartupShortcutPath)
+}
+
+function Set-StartupEnabled {
+    param([bool]$Enabled)
+
+    $shortcutPath = Get-StartupShortcutPath
+
+    if (-not $Enabled) {
+        Remove-Item -LiteralPath $shortcutPath -Force -ErrorAction SilentlyContinue
+        return
+    }
+
+    $shell = $null
+    $shortcut = $null
+
+    try {
+        $shell = New-Object -ComObject WScript.Shell
+        $shortcut = $shell.CreateShortcut($shortcutPath)
+
+        $exePath = Join-Path $script:AppDir "CodexProxyLauncher.exe"
+        if (Test-Path -LiteralPath $exePath) {
+            $shortcut.TargetPath = $exePath
+            $shortcut.Arguments = "-AutoStartProxy -StartMinimized"
+            $shortcut.IconLocation = $exePath
+        } else {
+            $scriptPath = Join-Path $script:AppDir "codex-only-proxy-launcher.ps1"
+            $powerShellPath = Get-PowerShellPath
+            $shortcut.TargetPath = $powerShellPath
+            $shortcut.Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File $(Quote-CommandArgument $scriptPath) -AutoStartProxy -StartMinimized"
+            $shortcut.IconLocation = "$powerShellPath,0"
+        }
+
+        $shortcut.WorkingDirectory = $script:AppDir
+        $shortcut.Description = "Start Codex through the dedicated local proxy at Windows sign-in."
+        $shortcut.Save()
+    } finally {
+        if ($shortcut) {
+            [void][Runtime.InteropServices.Marshal]::ReleaseComObject($shortcut)
+        }
+        if ($shell) {
+            [void][Runtime.InteropServices.Marshal]::ReleaseComObject($shell)
+        }
+    }
 }
 
 function Wait-LocalProxyPort {
@@ -509,15 +581,16 @@ $script:Language = $config.Language
 
 if ($AutoStartProxy) {
     $autoPort = if ($config.Port -as [int]) { [int]$config.Port } else { $script:DefaultPort }
-    [void](Wait-LocalProxyPort -Port $autoPort -TimeoutSeconds $AutoStartTimeoutSeconds)
-    Stop-CodexProcesses
-    [void](Start-Codex -Port $autoPort -ProxyMode)
-    $config = Read-Config
+    if (Wait-LocalProxyPort -Port $autoPort -TimeoutSeconds $AutoStartTimeoutSeconds) {
+        Stop-CodexProcesses
+        [void](Start-Codex -Port $autoPort -ProxyMode)
+        $config = Read-Config
+    }
 }
 
 $form = New-Object System.Windows.Forms.Form
 $form.Text = T "title"
-$form.Size = New-Object System.Drawing.Size(620, 330)
+$form.Size = New-Object System.Drawing.Size(620, 365)
 $form.StartPosition = "CenterScreen"
 $form.FormBorderStyle = "FixedDialog"
 $form.MaximizeBox = $false
@@ -570,12 +643,18 @@ $testButton.Location = New-Object System.Drawing.Point(307, 148)
 $testButton.Size = New-Object System.Drawing.Size(275, 34)
 $testButton.FlatStyle = "System"
 
+$startupCheckBox = New-Object System.Windows.Forms.CheckBox
+$startupCheckBox.Text = T "startup_checkbox"
+$startupCheckBox.Location = New-Object System.Drawing.Point(22, 195)
+$startupCheckBox.Size = New-Object System.Drawing.Size(560, 24)
+$startupCheckBox.Checked = Test-StartupEnabled
+
 $hintLabel = New-Object System.Windows.Forms.Label
 $hintLabel.Text = T "hint"
-$hintLabel.Location = New-Object System.Drawing.Point(22, 196)
+$hintLabel.Location = New-Object System.Drawing.Point(22, 228)
 $hintLabel.Size = New-Object System.Drawing.Size(560, 70)
 
-$form.Controls.AddRange(@($languageButton, $statusDot, $statusLabel, $portLabel, $portBox, $hostLabel, $toggleButton, $normalButton, $testButton, $hintLabel))
+$form.Controls.AddRange(@($languageButton, $statusDot, $statusLabel, $portLabel, $portBox, $hostLabel, $toggleButton, $normalButton, $testButton, $startupCheckBox, $hintLabel))
 
 $contextMenu = New-Object System.Windows.Forms.ContextMenuStrip
 $menuOpen = New-Object System.Windows.Forms.ToolStripMenuItem (T "menu_open")
@@ -612,6 +691,7 @@ function Update-LanguageUi {
     $hostLabel.Text = T "host_label"
     $normalButton.Text = T "normal_button"
     $testButton.Text = T "test_button"
+    $startupCheckBox.Text = T "startup_checkbox"
     $hintLabel.Text = T "hint"
     $menuOpen.Text = T "menu_open"
     $menuNormal.Text = T "menu_normal"
@@ -712,6 +792,20 @@ $testButton.Add_Click({
     $port = Parse-PortFromTextBox $portBox
     if ($null -ne $port) { Test-OpenAIProxy $port }
 })
+$startupCheckBox.Add_CheckedChanged({
+    if ($script:SyncingStartupUi) {
+        return
+    }
+
+    try {
+        Set-StartupEnabled -Enabled $startupCheckBox.Checked
+    } catch {
+        [System.Windows.Forms.MessageBox]::Show((T "startup_fail" $_.Exception.Message), (T "title"), "OK", "Error") | Out-Null
+        $script:SyncingStartupUi = $true
+        $startupCheckBox.Checked = Test-StartupEnabled
+        $script:SyncingStartupUi = $false
+    }
+})
 $menuToggle.Add_Click({ Invoke-Toggle })
 $menuNormal.Add_Click({ Start-NormalMode })
 $menuTest.Add_Click({
@@ -749,4 +843,7 @@ $timer.Add_Tick({ Update-Ui })
 $timer.Start()
 
 Update-LanguageUi
+if ($StartMinimized) {
+    $form.Add_Shown({ $form.Hide() })
+}
 [System.Windows.Forms.Application]::Run($form)
