@@ -68,6 +68,7 @@ Release 压缩包内包含：
 - `codex-only-proxy-launcher.ps1`：主程序逻辑
 - `codex-only-proxy-launcher.cmd`：备用启动入口
 - `start-codex-only-proxy-launcher.vbs`：备用安静启动入口
+- `icons/`：红色/绿色托盘状态图标
 - `README.md`
 - `LICENSE`
 
@@ -82,7 +83,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-release.
 构建结果会生成在：
 
 ```text
-dist/codex-desktop-proxy-launcher-v0.1.1.zip
+dist/codex-desktop-proxy-launcher-v0.1.2.zip
 ```
 
 ## License

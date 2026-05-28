@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.1.2
+
+- Fix a runtime tray icon crash caused by GDI+ `GetHicon()`.
+- Load packaged red/green tray icons from disk instead of drawing them while the launcher is running.
+
 ## v0.1.1
 
 - Add a custom embedded icon for `CodexProxyLauncher.exe`.

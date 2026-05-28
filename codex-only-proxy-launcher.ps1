@@ -9,12 +9,14 @@ $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
+$script:AppDir = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
 $script:StateDir = Join-Path $env:LOCALAPPDATA "CodexProxySwitch"
 $script:ConfigFile = Join-Path $script:StateDir "codex-only-launcher.json"
 $script:ProxyHost = "127.0.0.1"
 $script:DefaultPort = 10808
 $script:NoProxy = "localhost,127.0.0.1,::1"
 $script:ExitRequested = $false
+$script:IconCache = @{}
 
 function Ensure-StateDir {
     New-Item -ItemType Directory -Force -Path $script:StateDir | Out-Null
@@ -395,21 +397,35 @@ function Parse-PortFromTextBox {
 function New-StateIcon {
     param([bool]$Enabled)
 
-    $bitmap = New-Object System.Drawing.Bitmap 32, 32
-    $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
-    $graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
-    $graphics.Clear([System.Drawing.Color]::Transparent)
+    $key = if ($Enabled) { "on" } else { "off" }
+    if ($script:IconCache.ContainsKey($key)) {
+        return $script:IconCache[$key]
+    }
 
-    $color = if ($Enabled) { [System.Drawing.Color]::FromArgb(28, 172, 84) } else { [System.Drawing.Color]::FromArgb(220, 55, 55) }
-    $brush = New-Object System.Drawing.SolidBrush $color
-    $pen = New-Object System.Drawing.Pen ([System.Drawing.Color]::White), 3
-    $graphics.FillEllipse($brush, 4, 4, 24, 24)
-    $graphics.DrawEllipse($pen, 5, 5, 22, 22)
-    $graphics.Dispose()
-    $brush.Dispose()
-    $pen.Dispose()
+    $fileName = if ($Enabled) { "proxy-on.ico" } else { "proxy-off.ico" }
+    $iconPath = Join-Path (Join-Path $script:AppDir "icons") $fileName
 
-    [System.Drawing.Icon]::FromHandle($bitmap.GetHicon())
+    try {
+        if (Test-Path -LiteralPath $iconPath) {
+            $script:IconCache[$key] = New-Object System.Drawing.Icon -ArgumentList $iconPath
+        } else {
+            $script:IconCache[$key] = [System.Drawing.SystemIcons]::Application.Clone()
+        }
+    } catch {
+        $script:IconCache[$key] = [System.Drawing.SystemIcons]::Application.Clone()
+    }
+
+    return $script:IconCache[$key]
+}
+
+function Dispose-StateIcons {
+    foreach ($icon in $script:IconCache.Values) {
+        try {
+            if ($icon) { $icon.Dispose() }
+        } catch {
+        }
+    }
+    $script:IconCache.Clear()
 }
 
 function Test-OpenAIProxy {
@@ -670,6 +686,7 @@ $menuExit.Add_Click({
     $script:ExitRequested = $true
     $notifyIcon.Visible = $false
     $notifyIcon.Dispose()
+    Dispose-StateIcons
     $form.Close()
 })
 $form.Add_FormClosing({
