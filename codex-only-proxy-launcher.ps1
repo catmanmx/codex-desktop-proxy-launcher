@@ -343,13 +343,17 @@ function Get-CodexProcesses {
         ForEach-Object { Get-Process -Name $_ -ErrorAction SilentlyContinue } |
         Where-Object {
             try {
+                if ($_.ProcessName -eq "Codex") {
+                    return $true
+                }
+
                 -not [string]::IsNullOrWhiteSpace($_.Path) -and
                 (
                     $_.Path -like "*\OpenAI.Codex_*" -or
                     $_.Path -like "*\AppData\Local\OpenAI\Codex\bin\*"
                 )
             } catch {
-                $false
+                $_.ProcessName -eq "Codex"
             }
         }
 }
@@ -366,15 +370,21 @@ function Test-AnyCodexRunning {
 }
 
 function Stop-CodexProcesses {
-    $processes = @(Get-CodexProcesses)
-    foreach ($process in $processes) {
-        try {
-            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
-        } catch {
+    for ($attempt = 0; $attempt -lt 6; $attempt++) {
+        $processes = @(Get-CodexProcesses)
+        if ($processes.Count -eq 0) {
+            return
         }
-    }
 
-    Start-Sleep -Milliseconds 900
+        foreach ($process in $processes) {
+            try {
+                Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+            } catch {
+            }
+        }
+
+        Start-Sleep -Milliseconds 700
+    }
 }
 
 function Get-CodexAppUserModelId {

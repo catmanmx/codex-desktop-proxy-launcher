@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.1.7
+
+- Make Codex restart stricter by also stopping path-protected `Codex.exe` processes whose executable path cannot be read.
+- Repeat shutdown checks before relaunching so proxy startup arguments are less likely to be ignored by an already-running Codex instance.
+
 ## v0.1.6
 
 - Fix proxy test false positives caused by counting the local proxy `200 Connection established` handshake as OpenAI connectivity.
