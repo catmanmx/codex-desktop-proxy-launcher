@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.1.8
+
+- Validate the saved Windows startup shortcut target and automatically repair stale shortcuts when the launcher opens.
+- Remove the legacy registry startup entry left by early launcher versions when the launcher opens.
+- Show whether the local proxy port is open without implying that the selected VPN node is stable.
+- Add an optional continuous node stability monitor with passed, failed, and success-rate counters.
+
 ## v0.1.7
 
 - Make Codex restart stricter by also stopping path-protected `Codex.exe` processes whose executable path cannot be read.

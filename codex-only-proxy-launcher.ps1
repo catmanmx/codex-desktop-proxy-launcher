@@ -21,6 +21,13 @@ $script:NoProxy = "localhost,127.0.0.1,::1"
 $script:ExitRequested = $false
 $script:IconCache = @{}
 $script:SyncingStartupUi = $false
+$script:MonitorEnabled = $false
+$script:MonitorProcess = $null
+$script:MonitorPort = 0
+$script:MonitorSuccessCount = 0
+$script:MonitorFailureCount = 0
+$script:MonitorLastState = "idle"
+$script:MonitorNextCheckAt = Get-Date
 
 function Ensure-StateDir {
     New-Item -ItemType Directory -Force -Path $script:StateDir | Out-Null
@@ -80,6 +87,24 @@ function T {
 
     $texts = @{
         zh = @{
+            port_status_on = "绿色：本地代理端口已开启，端口：{0}"
+            port_status_off = "红色：本地代理端口未开启，端口：{0}"
+            toggle_proxy_restart = "使用专用代理重启 Codex"
+            menu_toggle_proxy_restart = "使用专用代理重启 Codex"
+            tray_port_on = "Codex 代理端口：已开启"
+            tray_port_off = "Codex 代理端口：未开启"
+            startup_checkbox_v2 = "开机自动使用代理启动 Codex"
+            monitor_start = "开始连续检测节点稳定性"
+            monitor_stop = "停止连续检测节点稳定性"
+            monitor_idle = "节点稳定性监测：未开启"
+            monitor_waiting = "节点稳定性监测：运行中，等待首次检测..."
+            monitor_invalid_port = "节点稳定性监测：端口无效，请先填写正确端口"
+            monitor_summary = "节点稳定性监测：运行中，成功 {0} / 失败 {1}，成功率 {2}%，最近：{3}"
+            monitor_ok = "通过"
+            monitor_fail = "失败"
+            menu_monitor_start = "开始连续检测节点稳定性"
+            menu_monitor_stop = "停止连续检测节点稳定性"
+            hint_v2 = "说明：顶部红绿状态只表示本地代理端口是否开启，不代表节点稳定。持续检测可以观察节点质量。这个启动器只影响被它重启的 Codex，不改系统代理。切换 VPN 节点不需要动这里，只有代理软件本地端口变了才改端口。"
             title = "Codex 专用代理启动器"
             lang_button = "EN"
             no_exe = "没有找到 Codex Desktop 的启动入口。请先手动打开一次 Codex，再重新使用这个启动器。"
@@ -114,6 +139,24 @@ function T {
             target_normal = "普通模式"
         }
         en = @{
+            port_status_on = "Green: local proxy port is open. Port: {0}"
+            port_status_off = "Red: local proxy port is closed. Port: {0}"
+            toggle_proxy_restart = "Restart Codex using dedicated proxy"
+            menu_toggle_proxy_restart = "Restart Codex using dedicated proxy"
+            tray_port_on = "Codex proxy port: open"
+            tray_port_off = "Codex proxy port: closed"
+            startup_checkbox_v2 = "Start Codex in proxy mode with Windows"
+            monitor_start = "Start continuous node stability check"
+            monitor_stop = "Stop continuous node stability check"
+            monitor_idle = "Node stability monitor: off"
+            monitor_waiting = "Node stability monitor: running, waiting for first check..."
+            monitor_invalid_port = "Node stability monitor: invalid port"
+            monitor_summary = "Node stability monitor: running, passed {0} / failed {1}, success rate {2}%, latest: {3}"
+            monitor_ok = "passed"
+            monitor_fail = "failed"
+            menu_monitor_start = "Start continuous node stability check"
+            menu_monitor_stop = "Stop continuous node stability check"
+            hint_v2 = "The red/green indicator only shows whether the local proxy port is open; it does not prove node stability. Use continuous monitoring to observe node quality. This launcher only affects Codex restarted by it and does not change system proxy. Only update the port if your proxy app local port changes."
             title = "Codex Proxy Launcher"
             lang_button = "中文"
             no_exe = "Codex Desktop launch entry was not found. Open Codex once manually, then use this launcher again."
@@ -215,13 +258,59 @@ function Get-StartupShortcutPath {
     Join-Path $startupDir "Codex Proxy Launcher.lnk"
 }
 
+function Remove-LegacyStartupEntry {
+    $runKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
+    Remove-ItemProperty -LiteralPath $runKey -Name "CodexProxyLauncherAutoStart" -Force -ErrorAction SilentlyContinue
+}
+
+function Get-StartupShortcutTargetPath {
+    param([string]$ShortcutPath = $(Get-StartupShortcutPath))
+
+    if (-not (Test-Path -LiteralPath $ShortcutPath)) {
+        return $null
+    }
+
+    $shell = $null
+    $shortcut = $null
+
+    try {
+        $shell = New-Object -ComObject WScript.Shell
+        $shortcut = $shell.CreateShortcut($ShortcutPath)
+        return [string]$shortcut.TargetPath
+    } finally {
+        if ($shortcut) {
+            [void][Runtime.InteropServices.Marshal]::ReleaseComObject($shortcut)
+        }
+        if ($shell) {
+            [void][Runtime.InteropServices.Marshal]::ReleaseComObject($shell)
+        }
+    }
+}
+
 function Test-StartupEnabled {
-    Test-Path -LiteralPath (Get-StartupShortcutPath)
+    $shortcutPath = Get-StartupShortcutPath
+    $targetPath = Get-StartupShortcutTargetPath
+    if (-not [string]::IsNullOrWhiteSpace($targetPath) -and (Test-Path -LiteralPath $targetPath)) {
+        return $true
+    }
+
+    if (-not (Test-Path -LiteralPath $shortcutPath)) {
+        return $false
+    }
+
+    try {
+        Set-StartupEnabled -Enabled $true
+        $targetPath = Get-StartupShortcutTargetPath
+        return (-not [string]::IsNullOrWhiteSpace($targetPath) -and (Test-Path -LiteralPath $targetPath))
+    } catch {
+        return $false
+    }
 }
 
 function Set-StartupEnabled {
     param([bool]$Enabled)
 
+    Remove-LegacyStartupEntry
     $shortcutPath = Get-StartupShortcutPath
 
     if (-not $Enabled) {
@@ -235,29 +324,66 @@ function Set-StartupEnabled {
     try {
         $shell = New-Object -ComObject WScript.Shell
         $shortcut = $shell.CreateShortcut($shortcutPath)
+        $appDir = (Resolve-Path -LiteralPath $script:AppDir -ErrorAction Stop).Path
 
-        $exePath = Join-Path $script:AppDir "CodexProxyLauncher.exe"
+        $exePath = Join-Path $appDir "CodexProxyLauncher.exe"
         if (Test-Path -LiteralPath $exePath) {
+            $exePath = (Resolve-Path -LiteralPath $exePath -ErrorAction Stop).Path
             $shortcut.TargetPath = $exePath
             $shortcut.Arguments = "-AutoStartProxy -StartMinimized"
-            $shortcut.IconLocation = $exePath
+            $shortcut.IconLocation = "$exePath,0"
         } else {
-            $scriptPath = Join-Path $script:AppDir "codex-only-proxy-launcher.ps1"
+            $scriptPath = (Resolve-Path -LiteralPath (Join-Path $appDir "codex-only-proxy-launcher.ps1") -ErrorAction Stop).Path
             $powerShellPath = Get-PowerShellPath
             $shortcut.TargetPath = $powerShellPath
             $shortcut.Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File $(Quote-CommandArgument $scriptPath) -AutoStartProxy -StartMinimized"
             $shortcut.IconLocation = "$powerShellPath,0"
         }
 
-        $shortcut.WorkingDirectory = $script:AppDir
+        $shortcut.WorkingDirectory = $appDir
         $shortcut.Description = "Start Codex through the dedicated local proxy at Windows sign-in."
         $shortcut.Save()
+
+        $savedTargetPath = Get-StartupShortcutTargetPath -ShortcutPath $shortcutPath
+        if ([string]::IsNullOrWhiteSpace($savedTargetPath) -or -not (Test-Path -LiteralPath $savedTargetPath)) {
+            throw "The startup shortcut target is invalid: $savedTargetPath"
+        }
     } finally {
         if ($shortcut) {
             [void][Runtime.InteropServices.Marshal]::ReleaseComObject($shortcut)
         }
         if ($shell) {
             [void][Runtime.InteropServices.Marshal]::ReleaseComObject($shell)
+        }
+    }
+}
+
+function Test-LocalProxyPort {
+    param(
+        [int]$Port,
+        [int]$TimeoutMilliseconds = 250
+    )
+
+    $client = $null
+    $async = $null
+
+    try {
+        $client = New-Object System.Net.Sockets.TcpClient
+        $async = $client.BeginConnect($script:ProxyHost, $Port, $null, $null)
+        if (-not $async.AsyncWaitHandle.WaitOne($TimeoutMilliseconds)) {
+            return $false
+        }
+
+        $client.EndConnect($async)
+        return $true
+    } catch {
+        return $false
+    } finally {
+        if ($async -and $async.AsyncWaitHandle) {
+            $async.AsyncWaitHandle.Close()
+        }
+        if ($client) {
+            $client.Close()
         }
     }
 }
@@ -619,6 +745,167 @@ function Test-OpenAIProxy {
     }
 }
 
+function Reset-StabilityMonitorStats {
+    param([int]$Port = 0)
+
+    $script:MonitorPort = $Port
+    $script:MonitorSuccessCount = 0
+    $script:MonitorFailureCount = 0
+    $script:MonitorLastState = "idle"
+    $script:MonitorNextCheckAt = Get-Date
+}
+
+function Stop-StabilityProbe {
+    if (-not $script:MonitorProcess) {
+        return
+    }
+
+    try {
+        if (-not $script:MonitorProcess.HasExited) {
+            $script:MonitorProcess.Kill()
+        }
+    } catch {
+    } finally {
+        try {
+            $script:MonitorProcess.Dispose()
+        } catch {
+        }
+        $script:MonitorProcess = $null
+    }
+}
+
+function Start-StabilityProbe {
+    param([int]$Port)
+
+    if ($script:MonitorProcess) {
+        return
+    }
+
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = "curl.exe"
+    $psi.Arguments = '--ssl-no-revoke -sS -o NUL -w "HTTP_CODE:%{http_code}" --max-time 12 --proxy "' + (Get-ProxyUrl $Port) + '" "https://api.openai.com"'
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $script:MonitorProcess = [System.Diagnostics.Process]::Start($psi)
+}
+
+function Complete-StabilityProbe {
+    if (-not $script:MonitorProcess) {
+        return
+    }
+
+    try {
+        if (-not $script:MonitorProcess.HasExited) {
+            return
+        }
+
+        $output = $script:MonitorProcess.StandardOutput.ReadToEnd()
+        $output += $script:MonitorProcess.StandardError.ReadToEnd()
+        $httpCode = if ($output -match "HTTP_CODE:(\d{3})") { [int]$Matches[1] } else { 0 }
+
+        if ($script:MonitorProcess.ExitCode -eq 0 -and $httpCode -ge 200 -and $httpCode -lt 500) {
+            $script:MonitorSuccessCount++
+            $script:MonitorLastState = "ok"
+        } else {
+            $script:MonitorFailureCount++
+            $script:MonitorLastState = "fail"
+        }
+    } catch {
+        $script:MonitorFailureCount++
+        $script:MonitorLastState = "fail"
+    } finally {
+        try {
+            $script:MonitorProcess.Dispose()
+        } catch {
+        }
+        $script:MonitorProcess = $null
+        $script:MonitorNextCheckAt = (Get-Date).AddSeconds(5)
+    }
+}
+
+function Update-StabilityMonitorUi {
+    $monitorButton.Text = if ($script:MonitorEnabled) { T "monitor_stop" } else { T "monitor_start" }
+    $menuMonitor.Text = if ($script:MonitorEnabled) { T "menu_monitor_stop" } else { T "menu_monitor_start" }
+
+    if (-not $script:MonitorEnabled) {
+        $monitorLabel.Text = T "monitor_idle"
+        $monitorLabel.ForeColor = [System.Drawing.SystemColors]::ControlText
+        return
+    }
+
+    $total = $script:MonitorSuccessCount + $script:MonitorFailureCount
+    if ($total -eq 0) {
+        $monitorLabel.Text = T "monitor_waiting"
+        $monitorLabel.ForeColor = [System.Drawing.SystemColors]::ControlText
+        return
+    }
+
+    $successRate = [Math]::Round(($script:MonitorSuccessCount * 100.0) / $total)
+    $lastState = if ($script:MonitorLastState -eq "ok") { T "monitor_ok" } else { T "monitor_fail" }
+    $monitorLabel.Text = T "monitor_summary" @($script:MonitorSuccessCount, $script:MonitorFailureCount, $successRate, $lastState)
+    $monitorLabel.ForeColor = if ($script:MonitorLastState -eq "ok") {
+        [System.Drawing.Color]::FromArgb(28, 140, 74)
+    } else {
+        [System.Drawing.Color]::FromArgb(200, 45, 45)
+    }
+}
+
+function Stop-StabilityMonitor {
+    Stop-StabilityProbe
+    $script:MonitorEnabled = $false
+    Reset-StabilityMonitorStats
+    Update-StabilityMonitorUi
+}
+
+function Start-StabilityMonitor {
+    $port = Parse-PortFromTextBox $portBox
+    if ($null -eq $port) {
+        return
+    }
+
+    Stop-StabilityProbe
+    Reset-StabilityMonitorStats -Port $port
+    $script:MonitorEnabled = $true
+    Start-StabilityProbe -Port $port
+    Update-StabilityMonitorUi
+}
+
+function Invoke-StabilityMonitorTick {
+    Complete-StabilityProbe
+
+    if (-not $script:MonitorEnabled) {
+        return
+    }
+
+    $port = 0
+    if (-not [int]::TryParse($portBox.Text.Trim(), [ref]$port) -or $port -lt 1 -or $port -gt 65535) {
+        $monitorLabel.Text = T "monitor_invalid_port"
+        $monitorLabel.ForeColor = [System.Drawing.Color]::FromArgb(200, 45, 45)
+        return
+    }
+
+    if ($port -ne $script:MonitorPort) {
+        Stop-StabilityProbe
+        Reset-StabilityMonitorStats -Port $port
+    }
+
+    if (-not $script:MonitorProcess -and (Get-Date) -ge $script:MonitorNextCheckAt) {
+        Start-StabilityProbe -Port $port
+    }
+
+    Update-StabilityMonitorUi
+}
+
+function Toggle-StabilityMonitor {
+    if ($script:MonitorEnabled) {
+        Stop-StabilityMonitor
+    } else {
+        Start-StabilityMonitor
+    }
+}
+
 if ($ValidateOnly) {
     Ensure-AppActivationType
     Write-Host "Codex-only launcher script parsed successfully."
@@ -627,6 +914,7 @@ if ($ValidateOnly) {
 
 [System.Windows.Forms.Application]::EnableVisualStyles()
 
+Remove-LegacyStartupEntry
 $config = Read-Config
 $script:Language = $config.Language
 
@@ -641,7 +929,7 @@ if ($AutoStartProxy) {
 
 $form = New-Object System.Windows.Forms.Form
 $form.Text = T "title"
-$form.Size = New-Object System.Drawing.Size(620, 365)
+$form.Size = New-Object System.Drawing.Size(620, 445)
 $form.StartPosition = "CenterScreen"
 $form.FormBorderStyle = "FixedDialog"
 $form.MaximizeBox = $false
@@ -694,29 +982,42 @@ $testButton.Location = New-Object System.Drawing.Point(307, 148)
 $testButton.Size = New-Object System.Drawing.Size(275, 34)
 $testButton.FlatStyle = "System"
 
+$monitorButton = New-Object System.Windows.Forms.Button
+$monitorButton.Text = T "monitor_start"
+$monitorButton.Location = New-Object System.Drawing.Point(22, 190)
+$monitorButton.Size = New-Object System.Drawing.Size(560, 34)
+$monitorButton.FlatStyle = "System"
+
+$monitorLabel = New-Object System.Windows.Forms.Label
+$monitorLabel.Text = T "monitor_idle"
+$monitorLabel.Location = New-Object System.Drawing.Point(22, 232)
+$monitorLabel.Size = New-Object System.Drawing.Size(560, 24)
+
 $startupCheckBox = New-Object System.Windows.Forms.CheckBox
-$startupCheckBox.Text = T "startup_checkbox"
-$startupCheckBox.Location = New-Object System.Drawing.Point(22, 195)
+$startupCheckBox.Text = T "startup_checkbox_v2"
+$startupCheckBox.Location = New-Object System.Drawing.Point(22, 262)
 $startupCheckBox.Size = New-Object System.Drawing.Size(560, 24)
 $startupCheckBox.Checked = Test-StartupEnabled
 
 $hintLabel = New-Object System.Windows.Forms.Label
-$hintLabel.Text = T "hint"
-$hintLabel.Location = New-Object System.Drawing.Point(22, 228)
-$hintLabel.Size = New-Object System.Drawing.Size(560, 70)
+$hintLabel.Text = T "hint_v2"
+$hintLabel.Location = New-Object System.Drawing.Point(22, 296)
+$hintLabel.Size = New-Object System.Drawing.Size(560, 88)
 
-$form.Controls.AddRange(@($languageButton, $statusDot, $statusLabel, $portLabel, $portBox, $hostLabel, $toggleButton, $normalButton, $testButton, $startupCheckBox, $hintLabel))
+$form.Controls.AddRange(@($languageButton, $statusDot, $statusLabel, $portLabel, $portBox, $hostLabel, $toggleButton, $normalButton, $testButton, $monitorButton, $monitorLabel, $startupCheckBox, $hintLabel))
 
 $contextMenu = New-Object System.Windows.Forms.ContextMenuStrip
 $menuOpen = New-Object System.Windows.Forms.ToolStripMenuItem (T "menu_open")
 $menuToggle = New-Object System.Windows.Forms.ToolStripMenuItem
 $menuNormal = New-Object System.Windows.Forms.ToolStripMenuItem (T "menu_normal")
 $menuTest = New-Object System.Windows.Forms.ToolStripMenuItem (T "menu_test")
+$menuMonitor = New-Object System.Windows.Forms.ToolStripMenuItem (T "menu_monitor_start")
 $menuExit = New-Object System.Windows.Forms.ToolStripMenuItem (T "menu_exit")
 [void]$contextMenu.Items.Add($menuOpen)
 [void]$contextMenu.Items.Add($menuToggle)
 [void]$contextMenu.Items.Add($menuNormal)
 [void]$contextMenu.Items.Add($menuTest)
+[void]$contextMenu.Items.Add($menuMonitor)
 [void]$contextMenu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator))
 [void]$contextMenu.Items.Add($menuExit)
 
@@ -742,35 +1043,42 @@ function Update-LanguageUi {
     $hostLabel.Text = T "host_label"
     $normalButton.Text = T "normal_button"
     $testButton.Text = T "test_button"
-    $startupCheckBox.Text = T "startup_checkbox"
-    $hintLabel.Text = T "hint"
+    $monitorButton.Text = if ($script:MonitorEnabled) { T "monitor_stop" } else { T "monitor_start" }
+    $startupCheckBox.Text = T "startup_checkbox_v2"
+    $hintLabel.Text = T "hint_v2"
     $menuOpen.Text = T "menu_open"
     $menuNormal.Text = T "menu_normal"
     $menuTest.Text = T "menu_test"
+    $menuMonitor.Text = if ($script:MonitorEnabled) { T "menu_monitor_stop" } else { T "menu_monitor_start" }
     $menuExit.Text = T "menu_exit"
     Update-Ui
+    Update-StabilityMonitorUi
 }
 
 function Update-Ui {
     $port = 0
     [void][int]::TryParse($portBox.Text.Trim(), [ref]$port)
     $isProxyRunning = if ($port -gt 0) { Test-CodexProxyModeRunning $port } else { $false }
-    $anyCodex = Test-AnyCodexRunning
+    $isPortOpen = if ($port -gt 0) { Test-LocalProxyPort -Port $port } else { $false }
 
-    if ($isProxyRunning) {
+    if ($isPortOpen) {
         $statusDot.BackColor = [System.Drawing.Color]::FromArgb(28, 172, 84)
-        $statusLabel.Text = T "status_on" $port
-        $toggleButton.Text = T "toggle_on"
-        $menuToggle.Text = T "menu_toggle_on"
+        $statusLabel.Text = T "port_status_on" $port
         $notifyIcon.Icon = New-StateIcon $true
-        $notifyIcon.Text = T "tray_on"
+        $notifyIcon.Text = T "tray_port_on"
     } else {
         $statusDot.BackColor = [System.Drawing.Color]::FromArgb(220, 55, 55)
-        $statusLabel.Text = if ($anyCodex) { T "status_off_running" } else { T "status_off_idle" }
-        $toggleButton.Text = T "toggle_off"
-        $menuToggle.Text = T "menu_toggle_off"
+        $statusLabel.Text = T "port_status_off" $port
         $notifyIcon.Icon = New-StateIcon $false
-        $notifyIcon.Text = T "tray_off"
+        $notifyIcon.Text = T "tray_port_off"
+    }
+
+    if ($isProxyRunning) {
+        $toggleButton.Text = T "toggle_on"
+        $menuToggle.Text = T "menu_toggle_on"
+    } else {
+        $toggleButton.Text = T "toggle_proxy_restart"
+        $menuToggle.Text = T "menu_toggle_proxy_restart"
     }
 }
 
@@ -843,6 +1151,7 @@ $testButton.Add_Click({ Invoke-Safely {
     $port = Parse-PortFromTextBox $portBox
     if ($null -ne $port) { Test-OpenAIProxy $port }
 } })
+$monitorButton.Add_Click({ Invoke-Safely { Toggle-StabilityMonitor } })
 $startupCheckBox.Add_CheckedChanged({ Invoke-Safely {
     if ($script:SyncingStartupUi) {
         return
@@ -863,6 +1172,7 @@ $menuTest.Add_Click({ Invoke-Safely {
     $port = Parse-PortFromTextBox $portBox
     if ($null -ne $port) { Test-OpenAIProxy $port }
 } })
+$menuMonitor.Add_Click({ Invoke-Safely { Toggle-StabilityMonitor } })
 $menuOpen.Add_Click({ Invoke-Safely {
     $form.Show()
     $form.WindowState = "Normal"
@@ -875,6 +1185,7 @@ $notifyIcon.Add_DoubleClick({ Invoke-Safely {
 } })
 $menuExit.Add_Click({ Invoke-Safely {
     $script:ExitRequested = $true
+    Stop-StabilityMonitor
     $notifyIcon.Visible = $false
     $notifyIcon.Dispose()
     Dispose-StateIcons
@@ -890,7 +1201,10 @@ $portBox.Add_TextChanged({ Invoke-Safely { Update-Ui } -Silent })
 
 $timer = New-Object System.Windows.Forms.Timer
 $timer.Interval = 2500
-$timer.Add_Tick({ Invoke-Safely { Update-Ui } -Silent })
+$timer.Add_Tick({ Invoke-Safely {
+    Update-Ui
+    Invoke-StabilityMonitorTick
+} -Silent })
 $timer.Start()
 
 Invoke-Safely { Update-LanguageUi } -Silent
