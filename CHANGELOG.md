@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.1.10
+
+- In proxy mode, inject `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, and `NO_PROXY` into the Codex process environment so child processes such as app-server can inherit the proxy.
+- Try direct `Codex.exe` startup for WindowsApps installs in proxy mode, then fall back to packaged app activation if Windows refuses direct startup.
+- Keep existing `--proxy-server` and `--proxy-bypass-list` launch arguments.
+- Add launcher logs under `%LOCALAPPDATA%\CodexProxySwitch\launcher.log` with port, proxy injection, command, and launch method details.
+
 ## v0.1.9
 
 - Add product and maintenance documentation so future changes have a clear source of truth.

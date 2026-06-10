@@ -160,13 +160,25 @@ Codex Desktop 通常装在 `C:\Program Files\WindowsApps`。直接启动这个�
 --proxy-bypass-list=localhost;127.0.0.1;::1
 ```
 
-非 WindowsApps 版本还会额外设置：
+代理模式还会向新启动的 Codex 进程环境注入：
 
 ```text
 HTTP_PROXY
 HTTPS_PROXY
 ALL_PROXY
 NO_PROXY
+http_proxy
+https_proxy
+all_proxy
+no_proxy
+```
+
+WindowsApps 打包版在代理模式下会优先走 direct process 启动，以便注入这些环境变量。若 Windows 拒绝直接启动，则退回 `IApplicationActivationManager`；fallback 能保留 `--proxy-server` 参数，但不能保证 app-server 子进程继承代理环境。
+
+启动日志写入：
+
+```text
+%LOCALAPPDATA%\CodexProxySwitch\launcher.log
 ```
 
 ### 代理连通测试
@@ -255,4 +267,3 @@ curl.exe --proxy http://127.0.0.1:<端口> https://api.openai.com
 8. 推送 GitHub。
 9. 创建 GitHub Release。
 10. 上传 ZIP。
-

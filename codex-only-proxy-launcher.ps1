@@ -17,6 +17,7 @@ Add-Type -AssemblyName System.Drawing
 $script:AppDir = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
 $script:StateDir = Join-Path $env:LOCALAPPDATA "CodexProxySwitch"
 $script:ConfigFile = Join-Path $script:StateDir "codex-only-launcher.json"
+$script:LogFile = Join-Path $script:StateDir "launcher.log"
 $script:ProxyHost = "127.0.0.1"
 $script:DefaultPort = 10808
 $script:NoProxy = "localhost,127.0.0.1,::1"
@@ -79,6 +80,17 @@ function Save-Config {
         Language = $Language
         LaunchedAt = (Get-Date).ToString("o")
     } | ConvertTo-Json | Set-Content -Path $script:ConfigFile -Encoding UTF8
+}
+
+function Write-LauncherLog {
+    param([string]$Message)
+
+    try {
+        Ensure-StateDir
+        $line = "{0} {1}" -f (Get-Date).ToString("o"), $Message
+        Add-Content -Path $script:LogFile -Encoding UTF8 -Value $line
+    } catch {
+    }
 }
 
 function T {
@@ -211,6 +223,50 @@ function T {
 function Get-ProxyUrl {
     param([int]$Port)
     "http://$script:ProxyHost`:$Port"
+}
+
+function Get-ProxyEnvironment {
+    param([int]$Port)
+
+    $proxyUrl = Get-ProxyUrl $Port
+    @(
+        [pscustomobject]@{ Name = "HTTP_PROXY"; Value = $proxyUrl },
+        [pscustomobject]@{ Name = "HTTPS_PROXY"; Value = $proxyUrl },
+        [pscustomobject]@{ Name = "ALL_PROXY"; Value = $proxyUrl },
+        [pscustomobject]@{ Name = "http_proxy"; Value = $proxyUrl },
+        [pscustomobject]@{ Name = "https_proxy"; Value = $proxyUrl },
+        [pscustomobject]@{ Name = "all_proxy"; Value = $proxyUrl },
+        [pscustomobject]@{ Name = "NO_PROXY"; Value = $script:NoProxy },
+        [pscustomobject]@{ Name = "no_proxy"; Value = $script:NoProxy }
+    )
+}
+
+function Set-ProxyEnvironment {
+    param(
+        [System.Diagnostics.ProcessStartInfo]$StartInfo,
+        [int]$Port
+    )
+
+    foreach ($entry in (Get-ProxyEnvironment -Port $Port)) {
+        $StartInfo.EnvironmentVariables[$entry.Name] = [string]$entry.Value
+    }
+
+    $StartInfo.EnvironmentVariables["CODEX_PROXY_SWITCH_MODE"] = "proxy"
+    $StartInfo.EnvironmentVariables["CODEX_PROXY_SWITCH_PORT"] = [string]$Port
+}
+
+function Format-CodexCommandForLog {
+    param(
+        [string]$ExePath,
+        [string]$Arguments
+    )
+
+    $command = Quote-CommandArgument $ExePath
+    if (-not [string]::IsNullOrWhiteSpace($Arguments)) {
+        $command += " $Arguments"
+    }
+
+    return $command
 }
 
 function Show-AppError {
@@ -629,41 +685,49 @@ function Start-Codex {
     }
 
     $arguments = ""
+    $proxyUrl = $null
 
     if ($ProxyMode) {
         $proxyUrl = Get-ProxyUrl $Port
         $arguments = "--proxy-server=$proxyUrl --proxy-bypass-list=localhost;127.0.0.1;::1"
     }
 
+    Write-LauncherLog ("Start-Codex requested. Mode={0}; Port={1}; ProxyUrl={2}; Exe={3}" -f $(if ($ProxyMode) { "proxy" } else { "normal" }), $Port, $(if ($proxyUrl) { $proxyUrl } else { "" }), $exe)
+    Write-LauncherLog ("Codex command: {0}" -f (Format-CodexCommandForLog -ExePath $exe -Arguments $arguments))
+
     try {
-        if ($exe -like "*\WindowsApps\*") {
+        if ($exe -like "*\WindowsApps\*" -and -not $ProxyMode) {
+            Write-LauncherLog "Launch method: packaged activation; proxy environment injected: false"
             Start-PackagedCodex -Arguments $arguments
         } else {
-            $psi = New-Object System.Diagnostics.ProcessStartInfo
-            $psi.FileName = $exe
-            $psi.WorkingDirectory = Split-Path $exe -Parent
-            $psi.UseShellExecute = $false
-            $psi.Arguments = $arguments
+            try {
+                $psi = New-Object System.Diagnostics.ProcessStartInfo
+                $psi.FileName = $exe
+                $psi.WorkingDirectory = Split-Path $exe -Parent
+                $psi.UseShellExecute = $false
+                $psi.Arguments = $arguments
 
-            if ($ProxyMode) {
-                $proxyUrl = Get-ProxyUrl $Port
-                # Non-packaged builds inherit process environment variables;
-                # packaged builds are handled above through activation args.
-                $psi.EnvironmentVariables["HTTP_PROXY"] = $proxyUrl
-                $psi.EnvironmentVariables["HTTPS_PROXY"] = $proxyUrl
-                $psi.EnvironmentVariables["ALL_PROXY"] = $proxyUrl
-                $psi.EnvironmentVariables["NO_PROXY"] = $script:NoProxy
-                $psi.EnvironmentVariables["http_proxy"] = $proxyUrl
-                $psi.EnvironmentVariables["https_proxy"] = $proxyUrl
-                $psi.EnvironmentVariables["all_proxy"] = $proxyUrl
-                $psi.EnvironmentVariables["no_proxy"] = $script:NoProxy
-                $psi.EnvironmentVariables["CODEX_PROXY_SWITCH_MODE"] = "proxy"
-                $psi.EnvironmentVariables["CODEX_PROXY_SWITCH_PORT"] = [string]$Port
+                if ($ProxyMode) {
+                    Set-ProxyEnvironment -StartInfo $psi -Port $Port
+                    Write-LauncherLog ("Proxy environment injected: HTTP_PROXY=true; HTTPS_PROXY=true; ALL_PROXY=true; NO_PROXY={0}" -f $script:NoProxy)
+                } else {
+                    Write-LauncherLog "Proxy environment injected: false"
+                }
+
+                [System.Diagnostics.Process]::Start($psi) | Out-Null
+                Write-LauncherLog "Launch method: direct process"
+            } catch {
+                if ($exe -like "*\WindowsApps\*" -and $ProxyMode) {
+                    Write-LauncherLog ("Direct process launch failed: {0}" -f $_.Exception.Message)
+                    Write-LauncherLog "Launch method: packaged activation fallback; proxy environment injected: false; --proxy-server arguments preserved"
+                    Start-PackagedCodex -Arguments $arguments
+                } else {
+                    throw
+                }
             }
-
-            [System.Diagnostics.Process]::Start($psi) | Out-Null
         }
     } catch {
+        Write-LauncherLog ("Launch failed: {0}" -f $_.Exception.Message)
         [System.Windows.Forms.MessageBox]::Show((T "launch_fail" $_.Exception.Message), (T "title"), "OK", "Error") | Out-Null
         return $false
     }

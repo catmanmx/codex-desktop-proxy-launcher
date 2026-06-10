@@ -21,7 +21,8 @@ Codex Desktop Proxy Launcher 是一个非官方 Windows 小工具，用来让 Co
 
 - `v0.1.8`：源码已推送到 GitHub `main`，提交为 `5c373c9`。
 - `v0.1.8` GitHub Release 下载包：之前卡在 GitHub CLI 令牌失效，未确认完成上传。
-- `v0.1.9`：当前本地维护版，包含文档、维护注释和小逻辑修复。
+- `v0.1.9`：本地维护版，包含文档、维护注释和小逻辑修复。
+- `v0.1.10`：当前本地开发版，专用代理模式会向 Codex 进程注入代理环境变量，目标是让 app-server 子进程也继承代理。
 
 发布前必须重新运行构建，并确认 GitHub Release 中的 ZIP 与源码版本一致。
 
@@ -37,6 +38,23 @@ Codex Desktop Proxy Launcher 是一个非官方 Windows 小工具，用来让 Co
 - `测试当前端口是否可用`：通过当前本地代理访问 `https://api.openai.com`。
 - `开始连续检测节点稳定性`：持续通过当前本地代理访问 OpenAI，并显示成功、失败、成功率。
 - `开机自动使用代理启动 Codex`：写入当前用户的 Windows 启动文件夹。
+
+## 启动日志
+
+启动器会写入：
+
+```text
+%LOCALAPPDATA%\CodexProxySwitch\launcher.log
+```
+
+代理模式启动时会记录：
+
+- 当前代理端口。
+- 代理 URL。
+- 是否注入 `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY`。
+- `Codex.exe` 路径。
+- Codex 启动命令。
+- 启动方式：direct process 或 packaged activation fallback。
 
 ## 状态含义
 
@@ -59,7 +77,7 @@ Codex Desktop Proxy Launcher 是一个非官方 Windows 小工具，用来让 Co
 启动器只做两件事：
 
 1. 重启 Codex。
-2. 给新启动的 Codex 传入本地代理入口。
+2. 给新启动的 Codex 传入本地代理入口和进程级代理环境变量。
 
 它不会：
 
@@ -68,6 +86,8 @@ Codex Desktop Proxy Launcher 是一个非官方 Windows 小工具，用来让 Co
 - 自动切换 VPN 节点。
 - 修复代理软件本身的线路质量。
 - 修复 Codex Desktop 本体的通知或 Electron 缺陷。
+
+代理模式下，启动器会优先直接启动 `Codex.exe` 并注入进程环境变量。如果 WindowsApps 打包目录拒绝直接启动，启动器会退回 Windows packaged app activation。fallback 仍会保留 `--proxy-server` 参数，但 Windows 不提供给 packaged activation 注入进程环境变量的接口。
 
 ## Codex 通知弹窗问题
 
@@ -140,4 +160,3 @@ HKCU\Software\Microsoft\Windows\CurrentVersion\Run\CodexProxyLauncherAutoStart
 - 不要在生产脚本里做逐行注释；逐行注释会增加改动成本。需要解释逻辑时，优先更新 `docs/CODE_MAP.md`。
 - 修改代理启动逻辑后，必须验证普通模式和专用代理模式都能启动。
 - 修改开机启动逻辑后，必须验证旧快捷方式、移动目录、取消勾选三种情况。
-

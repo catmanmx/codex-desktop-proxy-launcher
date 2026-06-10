@@ -33,6 +33,7 @@ This is an unofficial Windows launcher for Codex Desktop. It helps reduce `Recon
 - 可勾选开机自动使用代理启动 Codex
 - 支持测试当前端口是否可连通 OpenAI
 - 支持持续检测节点稳定性，并显示成功率
+- 专用代理模式会向 Codex 进程注入代理环境变量，方便 app-server 子进程继承代理
 - 提供产品与维护文档，避免后续迭代混乱
 
 ## 使用方法
@@ -89,7 +90,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-release.
 构建结果会生成在：
 
 ```text
-dist/codex-desktop-proxy-launcher-v0.1.9.zip
+dist/codex-desktop-proxy-launcher-v0.1.10.zip
 ```
 
 ## 维护文档
