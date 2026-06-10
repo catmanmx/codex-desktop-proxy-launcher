@@ -12,6 +12,8 @@ $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
+# Global runtime state. Keep this section small and boring: these values are
+# shared by WinForms event handlers, timer callbacks, and helper functions.
 $script:AppDir = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
 $script:StateDir = Join-Path $env:LOCALAPPDATA "CodexProxySwitch"
 $script:ConfigFile = Join-Path $script:StateDir "codex-only-launcher.json"
@@ -85,6 +87,7 @@ function T {
         [object[]]$FormatArgs = @()
     )
 
+    # UI strings live in one table so Chinese and English stay in sync.
     $texts = @{
         zh = @{
             port_status_on = "绿色：本地代理端口已开启，端口：{0}"
@@ -258,6 +261,8 @@ function Get-StartupShortcutPath {
     Join-Path $startupDir "Codex Proxy Launcher.lnk"
 }
 
+# Early versions wrote an HKCU Run entry. Current versions use a Startup-folder
+# shortcut only, so remove the old key whenever the launcher has a chance.
 function Remove-LegacyStartupEntry {
     $runKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
     Remove-ItemProperty -LiteralPath $runKey -Name "CodexProxyLauncherAutoStart" -Force -ErrorAction SilentlyContinue
@@ -298,6 +303,9 @@ function Test-StartupEnabled {
         return $false
     }
 
+    # A stale shortcut means the user moved to a newer unpacked release. Repair
+    # it in place so the checkbox reflects the current package rather than an
+    # old broken target.
     try {
         Set-StartupEnabled -Enabled $true
         $targetPath = Get-StartupShortcutTargetPath
@@ -481,7 +489,8 @@ function Get-CodexProcesses {
             } catch {
                 $_.ProcessName -eq "Codex"
             }
-        }
+        } |
+        Sort-Object Id -Unique
 }
 
 function Test-CodexProxyModeRunning {
@@ -527,6 +536,9 @@ function Ensure-AppActivationType {
         return
     }
 
+    # Codex Desktop is usually installed as a packaged Windows app. Starting it
+    # by raw WindowsApps path is unreliable, so use the official app activation
+    # COM API and pass Electron launch arguments through that activation path.
     Add-Type -TypeDefinition @"
 using System;
 using System.Runtime.InteropServices;
@@ -635,6 +647,8 @@ function Start-Codex {
 
             if ($ProxyMode) {
                 $proxyUrl = Get-ProxyUrl $Port
+                # Non-packaged builds inherit process environment variables;
+                # packaged builds are handled above through activation args.
                 $psi.EnvironmentVariables["HTTP_PROXY"] = $proxyUrl
                 $psi.EnvironmentVariables["HTTPS_PROXY"] = $proxyUrl
                 $psi.EnvironmentVariables["ALL_PROXY"] = $proxyUrl
@@ -742,6 +756,8 @@ function Test-OpenAIProxy {
         }
     } catch {
         [System.Windows.Forms.MessageBox]::Show((T "test_fail" $_.Exception.Message), (T "title"), "OK", "Error") | Out-Null
+    } finally {
+        Remove-Item $tempOut, $tempErr -ErrorAction SilentlyContinue
     }
 }
 
@@ -781,6 +797,8 @@ function Start-StabilityProbe {
         return
     }
 
+    # A probe is intentionally just curl through the configured local port. It
+    # does not start Codex, change system proxy, or touch VPN settings.
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = "curl.exe"
     $psi.Arguments = '--ssl-no-revoke -sS -o NUL -w "HTTP_CODE:%{http_code}" --max-time 12 --proxy "' + (Get-ProxyUrl $Port) + '" "https://api.openai.com"'
@@ -881,6 +899,8 @@ function Invoke-StabilityMonitorTick {
 
     $port = 0
     if (-not [int]::TryParse($portBox.Text.Trim(), [ref]$port) -or $port -lt 1 -or $port -gt 65535) {
+        Stop-StabilityProbe
+        Reset-StabilityMonitorStats
         $monitorLabel.Text = T "monitor_invalid_port"
         $monitorLabel.ForeColor = [System.Drawing.Color]::FromArgb(200, 45, 45)
         return
@@ -914,6 +934,7 @@ if ($ValidateOnly) {
 
 [System.Windows.Forms.Application]::EnableVisualStyles()
 
+# Clean legacy startup state before reading config or drawing the checkbox.
 Remove-LegacyStartupEntry
 $config = Read-Config
 $script:Language = $config.Language
@@ -927,6 +948,8 @@ if ($AutoStartProxy) {
     }
 }
 
+# Build the compact WinForms UI directly in this script. The layout is fixed so
+# the launcher stays dependency-free and easy to package as a single EXE wrapper.
 $form = New-Object System.Windows.Forms.Form
 $form.Text = T "title"
 $form.Size = New-Object System.Drawing.Size(620, 445)
@@ -1058,6 +1081,8 @@ function Update-LanguageUi {
 function Update-Ui {
     $port = 0
     [void][int]::TryParse($portBox.Text.Trim(), [ref]$port)
+    # The green/red indicator answers only one question: is the local proxy
+    # port open? Node quality is handled separately by the stability monitor.
     $isProxyRunning = if ($port -gt 0) { Test-CodexProxyModeRunning $port } else { $false }
     $isPortOpen = if ($port -gt 0) { Test-LocalProxyPort -Port $port } else { $false }
 
@@ -1192,7 +1217,7 @@ $menuExit.Add_Click({ Invoke-Safely {
     $form.Close()
 } })
 $form.Add_FormClosing({
-    if (-not $script:ExitRequested) {
+    if (-not $script:ExitRequested -and $_.CloseReason -eq [System.Windows.Forms.CloseReason]::UserClosing) {
         $_.Cancel = $true
         $form.Hide()
     }

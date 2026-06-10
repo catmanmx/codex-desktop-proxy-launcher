@@ -1,11 +1,13 @@
 param(
-    [string]$Version = "0.1.8"
+    [string]$Version = "0.1.9"
 )
 
 $ErrorActionPreference = "Stop"
 
 Add-Type -AssemblyName System.Drawing
 
+# Build paths are derived from the script location so packaging works from any
+# current directory and always uses the checked-out repository contents.
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Root = Split-Path -Parent $ScriptDir
 $DistDir = Join-Path $Root "dist"
@@ -29,6 +31,8 @@ function Save-BitmapAsIcon {
     $directory = Split-Path -Parent $Path
     New-Item -ItemType Directory -Force -Path $directory | Out-Null
 
+    # Store the bitmap as a PNG-backed ICO. Windows accepts this format and it
+    # avoids unsafe GDI+ icon handles at runtime.
     $pngStream = New-Object System.IO.MemoryStream
     try {
         $Bitmap.Save($pngStream, [System.Drawing.Imaging.ImageFormat]::Png)
@@ -68,6 +72,8 @@ function New-LauncherIcon {
     $directory = Split-Path -Parent $Path
     New-Item -ItemType Directory -Force -Path $directory | Out-Null
 
+    # Generate the application icon during the build so the release package is
+    # reproducible and does not depend on a hand-maintained binary asset.
     $bitmap = New-Object System.Drawing.Bitmap 256, 256, ([System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
     $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
     $graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
@@ -127,6 +133,8 @@ function New-StateIconFile {
 
     Add-Type -AssemblyName System.Drawing
 
+    # Tray icons are packaged as static files to avoid the runtime GetHicon()
+    # crash fixed in v0.1.2.
     $bitmap = New-Object System.Drawing.Bitmap 64, 64, ([System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
     $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
     $graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
@@ -195,6 +203,11 @@ $filesToCopy = @(
 
 foreach ($file in $filesToCopy) {
     Copy-Item -Path (Join-Path $Root $file) -Destination $PackageDir -Force
+}
+
+$docsSource = Join-Path $Root "docs"
+if (Test-Path -LiteralPath $docsSource) {
+    Copy-Item -Path $docsSource -Destination $PackageDir -Recurse -Force
 }
 
 if (Test-Path $ZipPath) {

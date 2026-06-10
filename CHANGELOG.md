@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.1.9
+
+- Add product and maintenance documentation so future changes have a clear source of truth.
+- Add targeted maintenance comments to the launcher and build scripts without turning the production script into a line-by-line comment dump.
+- Deduplicate Codex process discovery before stopping processes.
+- Clean proxy-test temporary files after each test.
+- Stop an in-flight stability probe when the monitor port becomes invalid.
+- Allow Windows shutdown and logoff to close the launcher instead of hiding the window.
+
 ## v0.1.8
 
 - Validate the saved Windows startup shortcut target and automatically repair stale shortcuts when the launcher opens.
