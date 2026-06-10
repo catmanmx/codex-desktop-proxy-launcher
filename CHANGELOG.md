@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.1.11
+
+- When WindowsApps refuses direct `Codex.exe` startup, temporarily set proxy environment variables on the launcher process before packaged app activation.
+- Restore the launcher process environment immediately after activation so other software is not affected.
+- Improve fallback logs to show whether the packaged activation path had proxy environment prepared.
+
 ## v0.1.10
 
 - In proxy mode, inject `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, and `NO_PROXY` into the Codex process environment so child processes such as app-server can inherit the proxy.

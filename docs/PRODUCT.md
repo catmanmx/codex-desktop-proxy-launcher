@@ -22,7 +22,8 @@ Codex Desktop Proxy Launcher 是一个非官方 Windows 小工具，用来让 Co
 - `v0.1.8`：源码已推送到 GitHub `main`，提交为 `5c373c9`。
 - `v0.1.8` GitHub Release 下载包：之前卡在 GitHub CLI 令牌失效，未确认完成上传。
 - `v0.1.9`：本地维护版，包含文档、维护注释和小逻辑修复。
-- `v0.1.10`：当前本地开发版，专用代理模式会向 Codex 进程注入代理环境变量，目标是让 app-server 子进程也继承代理。
+- `v0.1.10`：专用代理模式会向 Codex 进程注入代理环境变量，目标是让 app-server 子进程也继承代理。
+- `v0.1.11`：当前本地开发版。direct process 被 WindowsApps 拒绝时，会在 packaged activation 前临时设置启动器进程环境变量，调用后立即恢复。
 
 发布前必须重新运行构建，并确认 GitHub Release 中的 ZIP 与源码版本一致。
 
@@ -87,7 +88,7 @@ Codex Desktop Proxy Launcher 是一个非官方 Windows 小工具，用来让 Co
 - 修复代理软件本身的线路质量。
 - 修复 Codex Desktop 本体的通知或 Electron 缺陷。
 
-代理模式下，启动器会优先直接启动 `Codex.exe` 并注入进程环境变量。如果 WindowsApps 打包目录拒绝直接启动，启动器会退回 Windows packaged app activation。fallback 仍会保留 `--proxy-server` 参数，但 Windows 不提供给 packaged activation 注入进程环境变量的接口。
+代理模式下，启动器会优先直接启动 `Codex.exe` 并注入进程环境变量。如果 WindowsApps 打包目录拒绝直接启动，启动器会退回 Windows packaged app activation。fallback 前会临时把代理环境变量设置到启动器进程，调用完成后立即恢复。这个方式不写入 Windows 全局用户环境变量，但是否被 packaged app 继承取决于 Windows 激活行为。
 
 ## Codex 通知弹窗问题
 

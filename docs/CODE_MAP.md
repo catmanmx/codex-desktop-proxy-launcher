@@ -173,7 +173,7 @@ all_proxy
 no_proxy
 ```
 
-WindowsApps 打包版在代理模式下会优先走 direct process 启动，以便注入这些环境变量。若 Windows 拒绝直接启动，则退回 `IApplicationActivationManager`；fallback 能保留 `--proxy-server` 参数，但不能保证 app-server 子进程继承代理环境。
+WindowsApps 打包版在代理模式下会优先走 direct process 启动，以便注入这些环境变量。若 Windows 拒绝直接启动，则退回 `IApplicationActivationManager`。fallback 前会临时设置当前启动器进程环境变量，激活完成后恢复；这不写入全局用户环境，但能否被 packaged app 继承取决于 Windows 激活行为。
 
 启动日志写入：
 

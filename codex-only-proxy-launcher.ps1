@@ -255,6 +255,39 @@ function Set-ProxyEnvironment {
     $StartInfo.EnvironmentVariables["CODEX_PROXY_SWITCH_PORT"] = [string]$Port
 }
 
+function Push-CurrentProcessProxyEnvironment {
+    param([int]$Port)
+
+    $previous = @{}
+    $entries = @(Get-ProxyEnvironment -Port $Port)
+    $entries += [pscustomobject]@{ Name = "CODEX_PROXY_SWITCH_MODE"; Value = "proxy" }
+    $entries += [pscustomobject]@{ Name = "CODEX_PROXY_SWITCH_PORT"; Value = [string]$Port }
+
+    foreach ($entry in $entries) {
+        if (-not $previous.ContainsKey($entry.Name)) {
+            $oldValue = [Environment]::GetEnvironmentVariable($entry.Name, "Process")
+            $previous[$entry.Name] = [pscustomobject]@{
+                Name = $entry.Name
+                Value = $oldValue
+                Existed = $null -ne $oldValue
+            }
+        }
+
+        [Environment]::SetEnvironmentVariable($entry.Name, [string]$entry.Value, "Process")
+    }
+
+    return @($previous.Values)
+}
+
+function Pop-CurrentProcessProxyEnvironment {
+    param([object[]]$Previous)
+
+    foreach ($entry in $Previous) {
+        $value = if ($entry.Existed) { [string]$entry.Value } else { $null }
+        [Environment]::SetEnvironmentVariable($entry.Name, $value, "Process")
+    }
+}
+
 function Format-CodexCommandForLog {
     param(
         [string]$ExePath,
@@ -719,8 +752,18 @@ function Start-Codex {
             } catch {
                 if ($exe -like "*\WindowsApps\*" -and $ProxyMode) {
                     Write-LauncherLog ("Direct process launch failed: {0}" -f $_.Exception.Message)
-                    Write-LauncherLog "Launch method: packaged activation fallback; proxy environment injected: false; --proxy-server arguments preserved"
-                    Start-PackagedCodex -Arguments $arguments
+                    $previousEnvironment = $null
+                    try {
+                        $previousEnvironment = Push-CurrentProcessProxyEnvironment -Port $Port
+                        Write-LauncherLog "Fallback process environment prepared: HTTP_PROXY=true; HTTPS_PROXY=true; ALL_PROXY=true"
+                        Write-LauncherLog "Launch method: packaged activation fallback; process environment temporarily set; --proxy-server arguments preserved"
+                        Start-PackagedCodex -Arguments $arguments
+                    } finally {
+                        if ($previousEnvironment) {
+                            Pop-CurrentProcessProxyEnvironment -Previous $previousEnvironment
+                            Write-LauncherLog "Fallback process environment restored"
+                        }
+                    }
                 } else {
                     throw
                 }
