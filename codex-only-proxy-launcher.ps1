@@ -18,6 +18,7 @@ $script:AppDir = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent 
 $script:StateDir = Join-Path $env:LOCALAPPDATA "CodexProxySwitch"
 $script:ConfigFile = Join-Path $script:StateDir "codex-only-launcher.json"
 $script:LogFile = Join-Path $script:StateDir "launcher.log"
+$script:ManagedUserEnvFile = Join-Path $script:StateDir "managed-user-proxy-env.json"
 $script:ProxyHost = "127.0.0.1"
 $script:DefaultPort = 10808
 $script:NoProxy = "localhost,127.0.0.1,::1"
@@ -119,7 +120,7 @@ function T {
             monitor_fail = "失败"
             menu_monitor_start = "开始连续检测节点稳定性"
             menu_monitor_stop = "停止连续检测节点稳定性"
-            hint_v2 = "说明：顶部红绿状态只表示本地代理端口是否开启，不代表节点稳定。持续检测可以观察节点质量。这个启动器只影响被它重启的 Codex，不改系统代理。切换 VPN 节点不需要动这里，只有代理软件本地端口变了才改端口。"
+            hint_v2 = "说明：顶部红绿状态只表示本地代理端口是否开启，不代表节点稳定。专用代理启动会短暂写入当前用户代理环境变量，启动后自动恢复，用来让 app-server 继承代理；不改系统代理。切换 VPN 节点不需要动这里，只有代理软件本地端口变了才改端口。"
             title = "Codex 专用代理启动器"
             lang_button = "EN"
             no_exe = "没有找到 Codex Desktop 的启动入口。请先手动打开一次 Codex，再重新使用这个启动器。"
@@ -171,7 +172,7 @@ function T {
             monitor_fail = "failed"
             menu_monitor_start = "Start continuous node stability check"
             menu_monitor_stop = "Stop continuous node stability check"
-            hint_v2 = "The red/green indicator only shows whether the local proxy port is open; it does not prove node stability. Use continuous monitoring to observe node quality. This launcher only affects Codex restarted by it and does not change system proxy. Only update the port if your proxy app local port changes."
+            hint_v2 = "The red/green indicator only shows whether the local proxy port is open; it does not prove node stability. Proxy launch briefly writes current-user proxy environment variables, then restores them after startup, so app-server can inherit the proxy. It does not change system proxy. Only update the port if your proxy app local port changes."
             title = "Codex Proxy Launcher"
             lang_button = "中文"
             no_exe = "Codex Desktop launch entry was not found. Open Codex once manually, then use this launcher again."
@@ -286,6 +287,114 @@ function Pop-CurrentProcessProxyEnvironment {
         $value = if ($entry.Existed) { [string]$entry.Value } else { $null }
         [Environment]::SetEnvironmentVariable($entry.Name, $value, "Process")
     }
+}
+
+function Publish-EnvironmentChange {
+    try {
+        if (-not ("CodexProxyEnvironmentChange" -as [type])) {
+            Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+
+public static class CodexProxyEnvironmentChange {
+    [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+    public static extern IntPtr SendMessageTimeout(
+        IntPtr hWnd,
+        int msg,
+        IntPtr wParam,
+        string lParam,
+        int flags,
+        int timeout,
+        out IntPtr result);
+}
+"@
+        }
+
+        $result = [IntPtr]::Zero
+        [void][CodexProxyEnvironmentChange]::SendMessageTimeout([IntPtr]0xffff, 0x1a, [IntPtr]::Zero, "Environment", 0x2, 1000, [ref]$result)
+    } catch {
+        Write-LauncherLog ("Environment change broadcast failed: {0}" -f $_.Exception.Message)
+    }
+}
+
+function Read-ManagedUserProxyEnvironmentState {
+    if (-not (Test-Path -LiteralPath $script:ManagedUserEnvFile)) {
+        return $null
+    }
+
+    try {
+        return Get-Content -LiteralPath $script:ManagedUserEnvFile -Raw | ConvertFrom-Json
+    } catch {
+        Write-LauncherLog ("Failed to read managed user proxy environment state: {0}" -f $_.Exception.Message)
+        return $null
+    }
+}
+
+function New-UserProxyEnvironmentBackup {
+    $names = Get-ProxyEnvironment -Port $script:DefaultPort | Select-Object -ExpandProperty Name
+    foreach ($name in $names) {
+        $oldValue = [Environment]::GetEnvironmentVariable($name, "User")
+        [pscustomobject]@{
+            Name = $name
+            Value = $oldValue
+            Existed = $null -ne $oldValue
+        }
+    }
+}
+
+function Enable-ManagedUserProxyEnvironment {
+    param([int]$Port)
+
+    Ensure-StateDir
+    $existingState = Read-ManagedUserProxyEnvironmentState
+    if ($existingState -and $existingState.Active -eq $true -and $existingState.Entries) {
+        $backupEntries = @($existingState.Entries)
+        $backupCreated = $false
+    } else {
+        $backupEntries = @(New-UserProxyEnvironmentBackup)
+        $backupCreated = $true
+    }
+
+    $state = [pscustomobject]@{
+        Version = 1
+        Active = $true
+        Port = $Port
+        AppliedAt = (Get-Date).ToString("o")
+        Entries = $backupEntries
+    }
+    $state | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $script:ManagedUserEnvFile -Encoding UTF8
+
+    foreach ($entry in (Get-ProxyEnvironment -Port $Port)) {
+        [Environment]::SetEnvironmentVariable($entry.Name, [string]$entry.Value, "User")
+    }
+
+    Publish-EnvironmentChange
+
+    $proxyUrl = Get-ProxyUrl $Port
+    $httpSet = [Environment]::GetEnvironmentVariable("HTTP_PROXY", "User") -eq $proxyUrl
+    $httpsSet = [Environment]::GetEnvironmentVariable("HTTPS_PROXY", "User") -eq $proxyUrl
+    $allSet = [Environment]::GetEnvironmentVariable("ALL_PROXY", "User") -eq $proxyUrl
+    Write-LauncherLog ("Managed user proxy environment enabled: Port={0}; HTTP_PROXY={1}; HTTPS_PROXY={2}; ALL_PROXY={3}; BackupCreated={4}" -f $Port, $httpSet, $httpsSet, $allSet, $backupCreated)
+}
+
+function Disable-ManagedUserProxyEnvironment {
+    param([string]$Reason = "restore")
+
+    $state = Read-ManagedUserProxyEnvironmentState
+    if (-not $state -or $state.Active -ne $true -or -not $state.Entries) {
+        return $false
+    }
+
+    $entries = @($state.Entries)
+    foreach ($entry in $entries) {
+        $value = if ($entry.Existed) { [string]$entry.Value } else { $null }
+        [Environment]::SetEnvironmentVariable([string]$entry.Name, $value, "User")
+    }
+
+    Remove-Item -LiteralPath $script:ManagedUserEnvFile -Force -ErrorAction SilentlyContinue
+    Publish-EnvironmentChange
+    Write-LauncherLog ("Managed user proxy environment restored: Reason={0}; EntryCount={1}" -f $Reason, $entries.Count)
+    return $true
 }
 
 function Format-CodexCommandForLog {
@@ -702,7 +811,38 @@ function Start-PackagedCodex {
 
     Ensure-AppActivationType
     $appId = Get-CodexAppUserModelId
-    [AppActivation.ApplicationActivator]::Activate($appId, $Arguments) | Out-Null
+    return [int][AppActivation.ApplicationActivator]::Activate($appId, $Arguments)
+}
+
+function Wait-CodexAppServerProcess {
+    param(
+        [int]$ParentProcessId,
+        [int]$TimeoutSeconds = 8
+    )
+
+    if ($ParentProcessId -le 0) {
+        return $false
+    }
+
+    $deadline = (Get-Date).AddSeconds([Math]::Max(1, $TimeoutSeconds))
+    do {
+        $server = Get-CimInstance Win32_Process -Filter "ParentProcessId=$ParentProcessId" -ErrorAction SilentlyContinue |
+            Where-Object {
+                $_.Name -ieq "codex.exe" -and
+                $_.CommandLine -match "\\resources\\codex\.exe.*app-server"
+            } |
+            Select-Object -First 1
+
+        if ($server) {
+            Write-LauncherLog ("App-server process detected: ParentPid={0}; AppServerPid={1}" -f $ParentProcessId, $server.ProcessId)
+            return $true
+        }
+
+        Start-Sleep -Milliseconds 250
+    } while ((Get-Date) -lt $deadline)
+
+    Write-LauncherLog ("App-server process was not detected before restore: ParentPid={0}; TimeoutSeconds={1}" -f $ParentProcessId, $TimeoutSeconds)
+    return $false
 }
 
 function Start-Codex {
@@ -723,6 +863,8 @@ function Start-Codex {
     if ($ProxyMode) {
         $proxyUrl = Get-ProxyUrl $Port
         $arguments = "--proxy-server=$proxyUrl --proxy-bypass-list=localhost;127.0.0.1;::1"
+    } else {
+        [void](Disable-ManagedUserProxyEnvironment -Reason "normal-mode launch")
     }
 
     Write-LauncherLog ("Start-Codex requested. Mode={0}; Port={1}; ProxyUrl={2}; Exe={3}" -f $(if ($ProxyMode) { "proxy" } else { "normal" }), $Port, $(if ($proxyUrl) { $proxyUrl } else { "" }), $exe)
@@ -731,7 +873,7 @@ function Start-Codex {
     try {
         if ($exe -like "*\WindowsApps\*" -and -not $ProxyMode) {
             Write-LauncherLog "Launch method: packaged activation; proxy environment injected: false"
-            Start-PackagedCodex -Arguments $arguments
+            [void](Start-PackagedCodex -Arguments $arguments)
         } else {
             try {
                 $psi = New-Object System.Diagnostics.ProcessStartInfo
@@ -753,15 +895,24 @@ function Start-Codex {
                 if ($exe -like "*\WindowsApps\*" -and $ProxyMode) {
                     Write-LauncherLog ("Direct process launch failed: {0}" -f $_.Exception.Message)
                     $previousEnvironment = $null
+                    $managedUserEnvironmentEnabled = $false
                     try {
                         $previousEnvironment = Push-CurrentProcessProxyEnvironment -Port $Port
+                        $managedUserEnvironmentEnabled = $true
+                        Enable-ManagedUserProxyEnvironment -Port $Port
                         Write-LauncherLog "Fallback process environment prepared: HTTP_PROXY=true; HTTPS_PROXY=true; ALL_PROXY=true"
-                        Write-LauncherLog "Launch method: packaged activation fallback; process environment temporarily set; --proxy-server arguments preserved"
-                        Start-PackagedCodex -Arguments $arguments
+                        Write-LauncherLog "Fallback user environment prepared: HTTP_PROXY=true; HTTPS_PROXY=true; ALL_PROXY=true"
+                        Write-LauncherLog "Launch method: packaged activation fallback; process and current-user environment temporarily set; --proxy-server arguments preserved"
+                        $activatedProcessId = Start-PackagedCodex -Arguments $arguments
+                        Write-LauncherLog ("Packaged activation returned process id: {0}" -f $activatedProcessId)
+                        [void](Wait-CodexAppServerProcess -ParentProcessId $activatedProcessId -TimeoutSeconds 8)
                     } finally {
                         if ($previousEnvironment) {
                             Pop-CurrentProcessProxyEnvironment -Previous $previousEnvironment
                             Write-LauncherLog "Fallback process environment restored"
+                        }
+                        if ($managedUserEnvironmentEnabled) {
+                            [void](Disable-ManagedUserProxyEnvironment -Reason "post-launch restore")
                         }
                     }
                 } else {
@@ -1045,6 +1196,7 @@ if ($ValidateOnly) {
 Remove-LegacyStartupEntry
 $config = Read-Config
 $script:Language = $config.Language
+[void](Disable-ManagedUserProxyEnvironment -Reason "startup cleanup")
 
 if ($AutoStartProxy) {
     $autoPort = if ($config.Port -as [int]) { [int]$config.Port } else { $script:DefaultPort }

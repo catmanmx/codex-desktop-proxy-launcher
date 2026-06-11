@@ -23,7 +23,8 @@ Codex Desktop Proxy Launcher 是一个非官方 Windows 小工具，用来让 Co
 - `v0.1.8` GitHub Release 下载包：之前卡在 GitHub CLI 令牌失效，未确认完成上传。
 - `v0.1.9`：本地维护版，包含文档、维护注释和小逻辑修复。
 - `v0.1.10`：专用代理模式会向 Codex 进程注入代理环境变量，目标是让 app-server 子进程也继承代理。
-- `v0.1.11`：当前本地开发版。direct process 被 WindowsApps 拒绝时，会在 packaged activation 前临时设置启动器进程环境变量，调用后立即恢复。
+- `v0.1.11`：direct process 被 WindowsApps 拒绝时，会在 packaged activation 前临时设置启动器进程环境变量，调用后立即恢复。
+- `v0.1.12`：当前本地开发版。WindowsApps fallback 会在启动前短暂写入当前用户代理环境变量并广播环境变化，等待 Codex app-server 子进程出现后立即按备份恢复，用来让 app-server 继承 `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY`。
 
 发布前必须重新运行构建，并确认 GitHub Release 中的 ZIP 与源码版本一致。
 
@@ -53,6 +54,7 @@ Codex Desktop Proxy Launcher 是一个非官方 Windows 小工具，用来让 Co
 - 当前代理端口。
 - 代理 URL。
 - 是否注入 `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY`。
+- WindowsApps fallback 是否短暂写入并恢复当前用户代理环境变量。
 - `Codex.exe` 路径。
 - Codex 启动命令。
 - 启动方式：direct process 或 packaged activation fallback。
@@ -79,16 +81,17 @@ Codex Desktop Proxy Launcher 是一个非官方 Windows 小工具，用来让 Co
 
 1. 重启 Codex。
 2. 给新启动的 Codex 传入本地代理入口和进程级代理环境变量。
+3. 在 WindowsApps fallback 启动窗口内，短暂写入当前用户代理环境变量，让 packaged activation 创建的 Codex/app-server 能继承代理；检测到 app-server 后立即恢复备份。
 
 它不会：
 
 - 改系统代理。
-- 改其他软件代理。
+- 长期改其他软件代理；fallback 写入当前用户环境变量只发生在启动窗口内，随后恢复。
 - 自动切换 VPN 节点。
 - 修复代理软件本身的线路质量。
 - 修复 Codex Desktop 本体的通知或 Electron 缺陷。
 
-代理模式下，启动器会优先直接启动 `Codex.exe` 并注入进程环境变量。如果 WindowsApps 打包目录拒绝直接启动，启动器会退回 Windows packaged app activation。fallback 前会临时把代理环境变量设置到启动器进程，调用完成后立即恢复。这个方式不写入 Windows 全局用户环境变量，但是否被 packaged app 继承取决于 Windows 激活行为。
+代理模式下，启动器会优先直接启动 `Codex.exe` 并注入进程环境变量。如果 WindowsApps 打包目录拒绝直接启动，启动器会退回 Windows packaged app activation。fallback 前会临时把代理环境变量设置到启动器进程，同时备份并短暂写入当前用户代理环境变量，广播 Windows 环境变化，等到 app-server 子进程出现或等待超时后立即恢复。这个方式不改系统代理，也不会长期保留用户代理环境变量。
 
 ## Codex 通知弹窗问题
 

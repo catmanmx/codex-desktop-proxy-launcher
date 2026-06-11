@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.1.12
+
+- In WindowsApps fallback mode, temporarily write proxy variables to the current user's environment before packaged activation so Codex app-server can inherit them.
+- Back up and restore existing user-level proxy variables immediately after startup to reduce impact on other newly launched software.
+- Broadcast the Windows environment change and log whether `HTTP_PROXY`, `HTTPS_PROXY`, and `ALL_PROXY` were written.
+
 ## v0.1.11
 
 - When WindowsApps refuses direct `Codex.exe` startup, temporarily set proxy environment variables on the launcher process before packaged app activation.

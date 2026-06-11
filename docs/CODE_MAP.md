@@ -152,6 +152,10 @@ Codex Desktop 通常装在 `C:\Program Files\WindowsApps`。直接启动这个�
 函数：
 
 - `Start-Codex`
+- `Publish-EnvironmentChange`
+- `Enable-ManagedUserProxyEnvironment`
+- `Disable-ManagedUserProxyEnvironment`
+- `Wait-CodexAppServerProcess`
 
 专用代理模式会传入：
 
@@ -174,6 +178,17 @@ no_proxy
 ```
 
 WindowsApps 打包版在代理模式下会优先走 direct process 启动，以便注入这些环境变量。若 Windows 拒绝直接启动，则退回 `IApplicationActivationManager`。fallback 前会临时设置当前启动器进程环境变量，激活完成后恢复；这不写入全局用户环境，但能否被 packaged app 继承取决于 Windows 激活行为。
+
+v0.1.12 后，fallback 还会短暂托管当前用户代理环境变量：
+
+- 备份当前用户级 `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` / 大小写变体 / `NO_PROXY`。
+- 写入当前端口对应的代理值。
+- 广播 Windows `Environment` 变化。
+- 调用 packaged activation 启动 Codex。
+- 等到 `resources\codex.exe app-server` 子进程出现，或等待超时。
+- 启动窗口结束后立即恢复备份并删除临时状态文件。
+
+这一步用于解决 WindowsApps packaged activation 不继承启动器进程环境变量的问题，让 Codex app-server 有机会继承代理。
 
 启动日志写入：
 

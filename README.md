@@ -2,7 +2,7 @@
 
 Codex Desktop 专用代理启动器。它用于在 Windows 上让 Codex Desktop 固定通过本地代理端口启动，同时不修改系统代理、不影响其他软件。
 
-This is an unofficial Windows launcher for Codex Desktop. It helps reduce `Reconnecting...` and stuck "thinking" issues by starting Codex through a dedicated local proxy without changing global system proxy settings.
+This is an unofficial Windows launcher for Codex Desktop. It helps reduce `Reconnecting...`, stuck "thinking", and remote app-server connectivity issues by starting Codex through a dedicated local proxy without changing global system proxy settings.
 
 ## 解决什么问题
 
@@ -26,14 +26,15 @@ This is an unofficial Windows launcher for Codex Desktop. It helps reduce `Recon
 - 只影响由本启动器重启的 Codex
 - 不修改 Windows 系统代理
 - 不修改 WinHTTP
-- 不影响浏览器、Git、npm 或其他软件
+- WindowsApps fallback 启动时只会短暂写入当前用户代理环境变量，启动后自动恢复
+- 不会长期影响浏览器、Git、npm 或其他软件
 - 可填写本地代理端口
 - 红色/绿色状态显示
 - 中文/英文界面切换
 - 可勾选开机自动使用代理启动 Codex
 - 支持测试当前端口是否可连通 OpenAI
 - 支持持续检测节点稳定性，并显示成功率
-- 专用代理模式会向 Codex 进程注入代理环境变量，方便 app-server 子进程继承代理
+- 专用代理模式会向 Codex 进程注入代理环境变量；WindowsApps fallback 会短暂托管当前用户代理环境变量，方便 app-server 继承代理
 - 提供产品与维护文档，避免后续迭代混乱
 
 ## 使用方法
@@ -90,7 +91,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-release.
 构建结果会生成在：
 
 ```text
-dist/codex-desktop-proxy-launcher-v0.1.11.zip
+dist/codex-desktop-proxy-launcher-v0.1.12.zip
 ```
 
 ## 维护文档
