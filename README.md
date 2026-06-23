@@ -1,4 +1,4 @@
-# Codex Desktop Proxy Launcher
+﻿# Codex Desktop Proxy Launcher
 
 Codex Desktop 专用代理启动器。它用于在 Windows 上让 Codex Desktop 固定通过本地代理端口启动，同时不修改系统代理、不影响其他软件。
 
@@ -34,6 +34,8 @@ This is an unofficial Windows launcher for Codex Desktop. It helps reduce `Recon
 - 可勾选开机自动使用代理启动 Codex
 - 支持测试当前端口是否可连通 OpenAI
 - 支持持续检测节点稳定性，并显示成功率
+- 支持日志健康检查，识别 `logs_2.sqlite` / WAL 异常增长和 TRACE 暴涨
+- 提供手动备份、止血和恢复入口；止血默认不会自动执行
 - 专用代理模式会向 Codex 进程注入代理环境变量；WindowsApps fallback 会短暂托管当前用户代理环境变量，方便 app-server 继承代理
 - 提供产品与维护文档，避免后续迭代混乱
 
@@ -60,6 +62,10 @@ codex-only-proxy-launcher.cmd
 - `测试当前端口是否可用`：测试本地代理端口能否访问 OpenAI
 - `开始连续检测节点稳定性`：持续通过当前代理访问 OpenAI，显示成功、失败和成功率
 - `开机自动使用代理启动 Codex`：写入当前用户的 Windows 启动文件夹；下次登录后会等待本地代理端口可用，再用代理模式启动 Codex
+- `一键巡检`：只读检查 Codex 日志库、WAL、`MAX(id)`、trigger 和 Codex 版本
+- `一键完整检查`：采样 10 秒并统计最近日志的 TRACE 占比
+- `一键止血`：确认后先备份日志库，再创建 trigger 阻止新日志继续写入 `logs` 表
+- `一键恢复日志`：删除止血 trigger 并重新评估日志健康状态
 
 ## 注意
 
@@ -73,6 +79,7 @@ Release 压缩包内包含：
 
 - `CodexProxyLauncher.exe`：推荐入口，双击即可打开托盘启动器
 - `codex-only-proxy-launcher.ps1`：主程序逻辑
+- `codex-log-health.ps1`：日志健康检查、备份、止血和恢复逻辑
 - `codex-only-proxy-launcher.cmd`：备用启动入口
 - `start-codex-only-proxy-launcher.vbs`：备用安静启动入口
 - `icons/`：红色/绿色托盘状态图标
@@ -91,7 +98,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-release.
 构建结果会生成在：
 
 ```text
-dist/codex-desktop-proxy-launcher-v0.1.12.zip
+dist/codex-desktop-proxy-launcher-v0.1.13.zip
 ```
 
 ## 维护文档

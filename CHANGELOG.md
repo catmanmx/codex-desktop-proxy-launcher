@@ -1,4 +1,10 @@
-# Changelog
+﻿# Changelog
+
+## v0.1.13
+
+- Add a Log Health panel that checks Codex `logs_2.sqlite` status, WAL size, current `MAX(id)`, TRACE ratio, Codex version changes, and existing block triggers.
+- Add manual full checks, backup, block-writes, restore, and open-backup actions. Blocking writes is never automatic and creates a SQLite backup first.
+- Package `codex-log-health.ps1` and add a deterministic self-test covering missing database, blocked trigger, TRACE storm detection, backup, block, and restore flows.
 
 ## v0.1.12
 

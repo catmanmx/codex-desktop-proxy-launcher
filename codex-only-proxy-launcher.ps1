@@ -2,7 +2,8 @@
     [switch]$ValidateOnly,
     [switch]$AutoStartProxy,
     [int]$AutoStartTimeoutSeconds = 90,
-    [switch]$StartMinimized
+    [switch]$StartMinimized,
+    [switch]$RunLogHealthSelfTest
 )
 
 #requires -version 5.1
@@ -19,6 +20,7 @@ $script:StateDir = Join-Path $env:LOCALAPPDATA "CodexProxySwitch"
 $script:ConfigFile = Join-Path $script:StateDir "codex-only-launcher.json"
 $script:LogFile = Join-Path $script:StateDir "launcher.log"
 $script:ManagedUserEnvFile = Join-Path $script:StateDir "managed-user-proxy-env.json"
+$script:LogHealthModule = Join-Path $script:AppDir "codex-log-health.ps1"
 $script:ProxyHost = "127.0.0.1"
 $script:DefaultPort = 10808
 $script:NoProxy = "localhost,127.0.0.1,::1"
@@ -51,6 +53,11 @@ function Read-Config {
                     Mode = $mode
                     Language = $language
                     LaunchedAt = [string]$config.LaunchedAt
+                    LastKnownCodexVersion = [string]$config.LastKnownCodexVersion
+                    LastLogHealthMaxId = $config.LastLogHealthMaxId
+                    LastLogHealthStatus = [string]$config.LastLogHealthStatus
+                    LastLogHealthCheckedAt = [string]$config.LastLogHealthCheckedAt
+                    LastBackupDir = [string]$config.LastBackupDir
                 }
             }
         } catch {
@@ -62,6 +69,11 @@ function Read-Config {
         Mode = "normal"
         Language = "zh"
         LaunchedAt = $null
+        LastKnownCodexVersion = $null
+        LastLogHealthMaxId = $null
+        LastLogHealthStatus = $null
+        LastLogHealthCheckedAt = $null
+        LastBackupDir = $null
     }
 }
 
@@ -75,12 +87,37 @@ function Save-Config {
     )
 
     Ensure-StateDir
+    $existing = Read-Config
     [pscustomobject]@{
         Port = $Port
         Mode = $Mode
         Language = $Language
         LaunchedAt = (Get-Date).ToString("o")
-    } | ConvertTo-Json | Set-Content -Path $script:ConfigFile -Encoding UTF8
+        LastKnownCodexVersion = $existing.LastKnownCodexVersion
+        LastLogHealthMaxId = $existing.LastLogHealthMaxId
+        LastLogHealthStatus = $existing.LastLogHealthStatus
+        LastLogHealthCheckedAt = $existing.LastLogHealthCheckedAt
+        LastBackupDir = $existing.LastBackupDir
+    } | ConvertTo-Json -Depth 4 | Set-Content -Path $script:ConfigFile -Encoding UTF8
+}
+
+function Save-LogHealthConfig {
+    param([object]$Result)
+
+    if (-not $Result) { return }
+    Ensure-StateDir
+    $existing = Read-Config
+    [pscustomobject]@{
+        Port = $existing.Port
+        Mode = $existing.Mode
+        Language = $existing.Language
+        LaunchedAt = $existing.LaunchedAt
+        LastKnownCodexVersion = if ($Result.CodexVersion) { $Result.CodexVersion } else { $existing.LastKnownCodexVersion }
+        LastLogHealthMaxId = if ($null -ne $Result.MaxId) { $Result.MaxId } else { $existing.LastLogHealthMaxId }
+        LastLogHealthStatus = if ($Result.Status) { $Result.Status } else { $existing.LastLogHealthStatus }
+        LastLogHealthCheckedAt = if ($Result.CheckedAt) { $Result.CheckedAt } else { $existing.LastLogHealthCheckedAt }
+        LastBackupDir = if ($Result.BackupPath) { $Result.BackupPath } else { $existing.LastBackupDir }
+    } | ConvertTo-Json -Depth 4 | Set-Content -Path $script:ConfigFile -Encoding UTF8
 }
 
 function Write-LauncherLog {
@@ -120,6 +157,22 @@ function T {
             monitor_fail = "失败"
             menu_monitor_start = "开始连续检测节点稳定性"
             menu_monitor_stop = "停止连续检测节点稳定性"
+            log_health_title = "日志健康"
+            log_health_idle = "日志健康：尚未检查"
+            log_health_status = "日志健康：{0}"
+            log_health_details = "Codex：{0} | DB：{1} | WAL：{2} | MAX(id)：{3}`n10 秒增长：{4} | TRACE 占比：{5} | trigger：{6}`n最后检查：{7} | 备份：{8}"
+            log_health_light_button = "一键巡检"
+            log_health_full_button = "一键完整检查"
+            log_health_block_button = "一键止血"
+            log_health_restore_button = "一键恢复日志"
+            log_health_open_backup_button = "打开备份目录"
+            log_health_running = "检查中..."
+            log_health_yes = "是"
+            log_health_no = "否"
+            log_health_missing = "无"
+            log_health_confirm_block = "一键止血会先备份日志库，然后创建 SQLite trigger 阻止新日志写入 logs 表。继续？"
+            log_health_confirm_restore = "恢复日志会删除 logs_block_all_inserts trigger，并重新评估日志健康状态。继续？"
+            log_health_backup_missing = "还没有可打开的备份目录。"
             hint_v2 = "说明：顶部红绿状态只表示本地代理端口是否开启，不代表节点稳定。专用代理启动会短暂写入当前用户代理环境变量，启动后自动恢复，用来让 app-server 继承代理；不改系统代理。切换 VPN 节点不需要动这里，只有代理软件本地端口变了才改端口。"
             title = "Codex 专用代理启动器"
             lang_button = "EN"
@@ -172,6 +225,22 @@ function T {
             monitor_fail = "failed"
             menu_monitor_start = "Start continuous node stability check"
             menu_monitor_stop = "Stop continuous node stability check"
+            log_health_title = "Log health"
+            log_health_idle = "Log health: not checked"
+            log_health_status = "Log health: {0}"
+            log_health_details = "Codex: {0} | DB: {1} | WAL: {2} | MAX(id): {3}`n10s delta: {4} | TRACE ratio: {5} | trigger: {6}`nLast check: {7} | Backup: {8}"
+            log_health_light_button = "Quick check"
+            log_health_full_button = "Full check"
+            log_health_block_button = "Block writes"
+            log_health_restore_button = "Restore logs"
+            log_health_open_backup_button = "Open backups"
+            log_health_running = "checking..."
+            log_health_yes = "yes"
+            log_health_no = "no"
+            log_health_missing = "none"
+            log_health_confirm_block = "Blocking writes will first back up the log database, then create a SQLite trigger that prevents new rows in logs. Continue?"
+            log_health_confirm_restore = "Restoring logs will delete the logs_block_all_inserts trigger and re-check log health. Continue?"
+            log_health_backup_missing = "No backup folder is available yet."
             hint_v2 = "The red/green indicator only shows whether the local proxy port is open; it does not prove node stability. Proxy launch briefly writes current-user proxy environment variables, then restores them after startup, so app-server can inherit the proxy. It does not change system proxy. Only update the port if your proxy app local port changes."
             title = "Codex Proxy Launcher"
             lang_button = "中文"
@@ -1184,6 +1253,15 @@ function Toggle-StabilityMonitor {
     }
 }
 
+if (Test-Path -LiteralPath $script:LogHealthModule) {
+    . $script:LogHealthModule
+}
+
+if ($RunLogHealthSelfTest) {
+    Invoke-LogHealthSelfTest
+    exit 0
+}
+
 if ($ValidateOnly) {
     Ensure-AppActivationType
     Write-Host "Codex-only launcher script parsed successfully."
@@ -1211,7 +1289,7 @@ if ($AutoStartProxy) {
 # the launcher stays dependency-free and easy to package as a single EXE wrapper.
 $form = New-Object System.Windows.Forms.Form
 $form.Text = T "title"
-$form.Size = New-Object System.Drawing.Size(620, 445)
+$form.Size = New-Object System.Drawing.Size(620, 650)
 $form.StartPosition = "CenterScreen"
 $form.FormBorderStyle = "FixedDialog"
 $form.MaximizeBox = $false
@@ -1281,12 +1359,54 @@ $startupCheckBox.Location = New-Object System.Drawing.Point(22, 262)
 $startupCheckBox.Size = New-Object System.Drawing.Size(560, 24)
 $startupCheckBox.Checked = Test-StartupEnabled
 
+$logHealthGroup = New-Object System.Windows.Forms.GroupBox
+$logHealthGroup.Text = T "log_health_title"
+$logHealthGroup.Location = New-Object System.Drawing.Point(22, 296)
+$logHealthGroup.Size = New-Object System.Drawing.Size(560, 190)
+
+$logHealthStatusLabel = New-Object System.Windows.Forms.Label
+$logHealthStatusLabel.Text = T "log_health_idle"
+$logHealthStatusLabel.Location = New-Object System.Drawing.Point(12, 24)
+$logHealthStatusLabel.Size = New-Object System.Drawing.Size(536, 22)
+
+$logHealthDetailsLabel = New-Object System.Windows.Forms.Label
+$logHealthDetailsLabel.Location = New-Object System.Drawing.Point(12, 50)
+$logHealthDetailsLabel.Size = New-Object System.Drawing.Size(536, 58)
+
+$logHealthLightButton = New-Object System.Windows.Forms.Button
+$logHealthLightButton.Location = New-Object System.Drawing.Point(12, 116)
+$logHealthLightButton.Size = New-Object System.Drawing.Size(102, 28)
+$logHealthLightButton.FlatStyle = "System"
+
+$logHealthFullButton = New-Object System.Windows.Forms.Button
+$logHealthFullButton.Location = New-Object System.Drawing.Point(120, 116)
+$logHealthFullButton.Size = New-Object System.Drawing.Size(112, 28)
+$logHealthFullButton.FlatStyle = "System"
+
+$logHealthBlockButton = New-Object System.Windows.Forms.Button
+$logHealthBlockButton.Location = New-Object System.Drawing.Point(238, 116)
+$logHealthBlockButton.Size = New-Object System.Drawing.Size(96, 28)
+$logHealthBlockButton.FlatStyle = "System"
+
+$logHealthRestoreButton = New-Object System.Windows.Forms.Button
+$logHealthRestoreButton.Location = New-Object System.Drawing.Point(340, 116)
+$logHealthRestoreButton.Size = New-Object System.Drawing.Size(108, 28)
+$logHealthRestoreButton.FlatStyle = "System"
+
+$logHealthBackupButton = New-Object System.Windows.Forms.Button
+$logHealthBackupButton.Location = New-Object System.Drawing.Point(454, 116)
+$logHealthBackupButton.Size = New-Object System.Drawing.Size(94, 28)
+$logHealthBackupButton.FlatStyle = "System"
+
+$logHealthGroup.Controls.AddRange(@($logHealthStatusLabel, $logHealthDetailsLabel, $logHealthLightButton, $logHealthFullButton, $logHealthBlockButton, $logHealthRestoreButton, $logHealthBackupButton))
+$script:LogHealthUiReady = $true
+
 $hintLabel = New-Object System.Windows.Forms.Label
 $hintLabel.Text = T "hint_v2"
-$hintLabel.Location = New-Object System.Drawing.Point(22, 296)
+$hintLabel.Location = New-Object System.Drawing.Point(22, 500)
 $hintLabel.Size = New-Object System.Drawing.Size(560, 88)
 
-$form.Controls.AddRange(@($languageButton, $statusDot, $statusLabel, $portLabel, $portBox, $hostLabel, $toggleButton, $normalButton, $testButton, $monitorButton, $monitorLabel, $startupCheckBox, $hintLabel))
+$form.Controls.AddRange(@($languageButton, $statusDot, $statusLabel, $portLabel, $portBox, $hostLabel, $toggleButton, $normalButton, $testButton, $monitorButton, $monitorLabel, $startupCheckBox, $logHealthGroup, $hintLabel))
 
 $contextMenu = New-Object System.Windows.Forms.ContextMenuStrip
 $menuOpen = New-Object System.Windows.Forms.ToolStripMenuItem (T "menu_open")
@@ -1327,6 +1447,12 @@ function Update-LanguageUi {
     $testButton.Text = T "test_button"
     $monitorButton.Text = if ($script:MonitorEnabled) { T "monitor_stop" } else { T "monitor_start" }
     $startupCheckBox.Text = T "startup_checkbox_v2"
+    $logHealthGroup.Text = T "log_health_title"
+    $logHealthLightButton.Text = T "log_health_light_button"
+    $logHealthFullButton.Text = T "log_health_full_button"
+    $logHealthBlockButton.Text = T "log_health_block_button"
+    $logHealthRestoreButton.Text = T "log_health_restore_button"
+    $logHealthBackupButton.Text = T "log_health_open_backup_button"
     $hintLabel.Text = T "hint_v2"
     $menuOpen.Text = T "menu_open"
     $menuNormal.Text = T "menu_normal"
@@ -1335,6 +1461,7 @@ function Update-LanguageUi {
     $menuExit.Text = T "menu_exit"
     Update-Ui
     Update-StabilityMonitorUi
+    Update-LogHealthUi
 }
 
 function Update-Ui {
@@ -1436,6 +1563,11 @@ $testButton.Add_Click({ Invoke-Safely {
     if ($null -ne $port) { Test-OpenAIProxy $port }
 } })
 $monitorButton.Add_Click({ Invoke-Safely { Toggle-StabilityMonitor } })
+$logHealthLightButton.Add_Click({ Invoke-Safely { Start-LogHealthLightCheck -AllowFullCheck } })
+$logHealthFullButton.Add_Click({ Invoke-Safely { Start-LogHealthFullCheck } })
+$logHealthBlockButton.Add_Click({ Invoke-Safely { Invoke-LogHealthBlockWrites } })
+$logHealthRestoreButton.Add_Click({ Invoke-Safely { Invoke-LogHealthRestoreWrites } })
+$logHealthBackupButton.Add_Click({ Invoke-Safely { Open-LogHealthBackupDirectory } })
 $startupCheckBox.Add_CheckedChanged({ Invoke-Safely {
     if ($script:SyncingStartupUi) {
         return
@@ -1488,11 +1620,14 @@ $timer.Interval = 2500
 $timer.Add_Tick({ Invoke-Safely {
     Update-Ui
     Invoke-StabilityMonitorTick
+    Invoke-LogHealthTick
 } -Silent })
 $timer.Start()
 
 Invoke-Safely { Update-LanguageUi } -Silent
+Invoke-Safely { Start-LogHealthLightCheck -AllowFullCheck } -Silent
 if ($StartMinimized) {
     $form.Add_Shown({ Invoke-Safely { $form.Hide() } -Silent })
 }
 [System.Windows.Forms.Application]::Run($form)
+

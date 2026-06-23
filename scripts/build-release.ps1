@@ -1,5 +1,5 @@
-param(
-    [string]$Version = "0.1.12"
+﻿param(
+    [string]$Version = "0.1.13"
 )
 
 $ErrorActionPreference = "Stop"
@@ -194,6 +194,7 @@ try {
 
 $filesToCopy = @(
     "codex-only-proxy-launcher.ps1",
+    "codex-log-health.ps1",
     "codex-only-proxy-launcher.cmd",
     "start-codex-only-proxy-launcher.vbs",
     "README.md",

@@ -1,6 +1,6 @@
-# Codex Desktop Proxy Launcher 产品文档
+﻿# Codex Desktop Proxy Launcher 产品文档
 
-更新时间：2026-06-05
+更新时间：2026-06-23
 
 ## 产品定位
 
@@ -15,7 +15,7 @@ Codex Desktop Proxy Launcher 是一个非官方 Windows 小工具，用来让 Co
 - 不修改 WinHTTP。
 - 不影响浏览器、Git、npm 或其他软件。
 - 允许用户在代理软件里切换节点，只要本地端口不变，Codex 看到的代理入口就不变。
-- 用一个简洁窗口提供开关、端口、测试、连续监测和开机启动。
+- 用一个简洁窗口提供开关、端口、测试、连续监测、开机启动和日志健康检查。
 
 ## 当前版本状态
 
@@ -24,7 +24,8 @@ Codex Desktop Proxy Launcher 是一个非官方 Windows 小工具，用来让 Co
 - `v0.1.9`：本地维护版，包含文档、维护注释和小逻辑修复。
 - `v0.1.10`：专用代理模式会向 Codex 进程注入代理环境变量，目标是让 app-server 子进程也继承代理。
 - `v0.1.11`：direct process 被 WindowsApps 拒绝时，会在 packaged activation 前临时设置启动器进程环境变量，调用后立即恢复。
-- `v0.1.12`：当前本地开发版。WindowsApps fallback 会在启动前短暂写入当前用户代理环境变量并广播环境变化，等待 Codex app-server 子进程出现后立即按备份恢复，用来让 app-server 继承 `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY`。
+- `v0.1.12`：WindowsApps fallback 会在启动前短暂写入当前用户代理环境变量并广播环境变化，等待 Codex app-server 子进程出现后立即按备份恢复，用来让 app-server 继承 `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY`。
+- `v0.1.13`：当前本地开发版。新增日志健康检查面板，启动时做只读轻量检查；Codex 版本变化或可疑时做完整检查；手动止血前必须备份，恢复只删除止血 trigger，不删除备份。
 
 发布前必须重新运行构建，并确认 GitHub Release 中的 ZIP 与源码版本一致。
 
@@ -40,6 +41,8 @@ Codex Desktop Proxy Launcher 是一个非官方 Windows 小工具，用来让 Co
 - `测试当前端口是否可用`：通过当前本地代理访问 `https://api.openai.com`。
 - `开始连续检测节点稳定性`：持续通过当前本地代理访问 OpenAI，并显示成功、失败、成功率。
 - `开机自动使用代理启动 Codex`：写入当前用户的 Windows 启动文件夹。
+- 日志健康区：显示正常、可疑、TRACE 暴涨、已拦截、检查失败等状态，并显示 Codex 版本、数据库大小、WAL 大小、`MAX(id)`、10 秒增长、TRACE 占比、trigger 状态、最后检查时间和最近备份路径。
+- 日志健康按钮：一键巡检、一键完整检查、一键止血、一键恢复日志、打开备份目录。
 
 ## 启动日志
 
@@ -58,6 +61,12 @@ Codex Desktop Proxy Launcher 是一个非官方 Windows 小工具，用来让 Co
 - `Codex.exe` 路径。
 - Codex 启动命令。
 - 启动方式：direct process 或 packaged activation fallback。
+
+日志健康检查会记录：
+
+- 检查状态、数据库路径、数据库和 WAL 大小、`MAX(id)`、10 秒增长量、TRACE 占比、trigger 状态。
+- 备份目录、止血动作、恢复动作和异常消息。
+- 不记录大量 SQLite 行正文，只记录统计结果。
 
 ## 状态含义
 

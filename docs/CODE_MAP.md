@@ -1,6 +1,6 @@
-# 代码维护地图
+﻿# 代码维护地图
 
-更新时间：2026-06-05
+更新时间：2026-06-23
 
 ## 为什么不在生产代码里逐行注释
 
@@ -21,6 +21,7 @@
 | 文件 | 职责 |
 | --- | --- |
 | `codex-only-proxy-launcher.ps1` | 主程序，包含配置、UI、启动 Codex、代理测试、连续监测、开机启动 |
+| `codex-log-health.ps1` | 日志健康模块，包含 SQLite 访问、只读巡检、完整检查、备份、止血 trigger、恢复和自测 |
 | `src/CodexProxyLauncherBootstrap.cs` | 很小的 EXE 包装器，负责静默启动 PowerShell 主脚本 |
 | `scripts/build-release.ps1` | 生成图标、编译 EXE、复制发布文件、压缩 ZIP |
 | `codex-only-proxy-launcher.cmd` | 备用入口，调用 VBS 静默启动 |
@@ -43,6 +44,7 @@ param(...)
 - `-AutoStartProxy`：开机启动时使用，等待代理端口后启动 Codex。
 - `-AutoStartTimeoutSeconds`：开机等待代理端口的最长时间。
 - `-StartMinimized`：启动后隐藏到托盘。
+- `-RunLogHealthSelfTest`：运行日志健康模块自测后退出。
 
 ### 全局状态区
 
@@ -77,6 +79,11 @@ param(...)
 - `Mode`
 - `Language`
 - `LaunchedAt`
+- `LastKnownCodexVersion`
+- `LastLogHealthMaxId`
+- `LastLogHealthStatus`
+- `LastLogHealthCheckedAt`
+- `LastBackupDir`
 
 ### 文案系统
 
@@ -195,6 +202,24 @@ v0.1.12 后，fallback 还会短暂托管当前用户代理环境变量：
 ```text
 %LOCALAPPDATA%\CodexProxySwitch\launcher.log
 ```
+
+### 日志健康模块
+
+文件：`codex-log-health.ps1`
+
+职责：
+
+- 通过 Windows 自带 `winsqlite3.dll` 读取和写入 SQLite，不依赖外部 `sqlite3.exe`。
+- 启动时执行轻量检查：日志库是否存在、WAL 大小、`logs` 表、`logs_block_all_inserts` trigger、`MAX(id)`、Codex 版本。
+- 版本变化或可疑状态时执行 10 秒完整检查，并统计最近 2000 条日志的 `level` / `target` 分布。
+- 手动止血前先创建 SQLite backup API 快照和原始文件副本，再创建 `logs_block_all_inserts` trigger 并请求 WAL truncate。
+- 恢复只删除 `logs_block_all_inserts` trigger，不删除备份。
+
+风险点：
+
+- 止血会阻止所有新日志写入 `logs` 表，只能由用户点击并二次确认触发。
+- 自动启动只做检查和状态展示，不自动止血。
+- 自测必须使用临时数据库和临时备份目录，不能碰真实 `%USERPROFILE%\.codex\logs_2.sqlite`。
 
 ### 代理连通测试
 
