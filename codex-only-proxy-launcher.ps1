@@ -307,7 +307,8 @@ function Get-ProxyEnvironment {
         [pscustomobject]@{ Name = "https_proxy"; Value = $proxyUrl },
         [pscustomobject]@{ Name = "all_proxy"; Value = $proxyUrl },
         [pscustomobject]@{ Name = "NO_PROXY"; Value = $script:NoProxy },
-        [pscustomobject]@{ Name = "no_proxy"; Value = $script:NoProxy }
+        [pscustomobject]@{ Name = "no_proxy"; Value = $script:NoProxy },
+        [pscustomobject]@{ Name = "NODE_USE_ENV_PROXY"; Value = "1" }
     )
 }
 
@@ -700,7 +701,7 @@ function Wait-LocalProxyPort {
 }
 
 function Find-CodexDesktopExe {
-    $running = Get-Process -Name "Codex" -ErrorAction SilentlyContinue |
+    $running = Get-CodexProcesses |
         Where-Object { $_.Path -and (Test-Path $_.Path) } |
         Sort-Object StartTime -Descending |
         Select-Object -First 1
@@ -717,7 +718,7 @@ function Find-CodexDesktopExe {
         Sort-Object Version -Descending)
 
     foreach ($package in $packages) {
-        foreach ($relative in @("app\Codex.exe", "Codex.exe")) {
+        foreach ($relative in @("app\ChatGPT.exe", "app\Codex.exe", "ChatGPT.exe", "Codex.exe")) {
             $candidate = Join-Path $package.InstallLocation $relative
             if (Test-Path $candidate) {
                 return $candidate
@@ -730,9 +731,11 @@ function Find-CodexDesktopExe {
         Sort-Object Name -Descending
 
     foreach ($dir in $known) {
-        $candidate = Join-Path $dir.FullName "app\Codex.exe"
-        if (Test-Path $candidate) {
-            return $candidate
+        foreach ($relative in @("app\ChatGPT.exe", "app\Codex.exe", "ChatGPT.exe", "Codex.exe")) {
+            $candidate = Join-Path $dir.FullName $relative
+            if (Test-Path $candidate) {
+                return $candidate
+            }
         }
     }
 
@@ -740,21 +743,15 @@ function Find-CodexDesktopExe {
 }
 
 function Get-CodexProcesses {
-    @("Codex", "codex") |
+    @("ChatGPT", "Codex") |
         ForEach-Object { Get-Process -Name $_ -ErrorAction SilentlyContinue } |
         Where-Object {
             try {
-                if ($_.ProcessName -eq "Codex") {
-                    return $true
-                }
-
+                # Select packaged desktop processes, never the CLI/app-server.
                 -not [string]::IsNullOrWhiteSpace($_.Path) -and
-                (
-                    $_.Path -like "*\OpenAI.Codex_*" -or
-                    $_.Path -like "*\AppData\Local\OpenAI\Codex\bin\*"
-                )
+                $_.Path -match '\\OpenAI\.Codex_[^\\]+\\(?:app\\)?(?:ChatGPT|Codex)\.exe$'
             } catch {
-                $_.ProcessName -eq "Codex"
+                $false
             }
         } |
         Sort-Object Id -Unique
@@ -763,8 +760,20 @@ function Get-CodexProcesses {
 function Test-CodexProxyModeRunning {
     param([int]$Port)
 
-    $config = Read-Config
-    return ($config.Mode -eq "proxy" -and [int]$config.Port -eq $Port -and (Test-AnyCodexRunning))
+    # Saved mode describes a past launch; inspect the current desktop instead.
+    $desktopIds = @((Get-CodexProcesses) | ForEach-Object { $_.Id })
+    if ($desktopIds.Count -eq 0) { return $false }
+    $proxyArgument = [regex]::Escape("--proxy-server=$(Get-ProxyUrl -Port $Port)")
+    try {
+        $processes = @(Get-CimInstance Win32_Process -Filter "Name='ChatGPT.exe' OR Name='Codex.exe'" -ErrorAction Stop)
+        foreach ($process in $processes) {
+            if ($process.ProcessId -notin $desktopIds -or $process.CommandLine -match '(?:^|\s)--type=') { continue }
+            if ($process.CommandLine -match "(?:^|\s)`"?$proxyArgument`"?(?:\s|$)") { return $true }
+        }
+    } catch {
+        # Missing process details must not be reported as a working proxy.
+    }
+    return $false
 }
 
 function Test-AnyCodexRunning {
@@ -953,7 +962,7 @@ function Start-Codex {
 
                 if ($ProxyMode) {
                     Set-ProxyEnvironment -StartInfo $psi -Port $Port
-                    Write-LauncherLog ("Proxy environment injected: HTTP_PROXY=true; HTTPS_PROXY=true; ALL_PROXY=true; NO_PROXY={0}" -f $script:NoProxy)
+                    Write-LauncherLog ("Proxy environment injected: HTTP_PROXY=true; HTTPS_PROXY=true; ALL_PROXY=true; NODE_USE_ENV_PROXY=1; NO_PROXY={0}" -f $script:NoProxy)
                 } else {
                     Write-LauncherLog "Proxy environment injected: false"
                 }
@@ -969,8 +978,8 @@ function Start-Codex {
                         $previousEnvironment = Push-CurrentProcessProxyEnvironment -Port $Port
                         $managedUserEnvironmentEnabled = $true
                         Enable-ManagedUserProxyEnvironment -Port $Port
-                        Write-LauncherLog "Fallback process environment prepared: HTTP_PROXY=true; HTTPS_PROXY=true; ALL_PROXY=true"
-                        Write-LauncherLog "Fallback user environment prepared: HTTP_PROXY=true; HTTPS_PROXY=true; ALL_PROXY=true"
+                        Write-LauncherLog "Fallback process environment prepared: HTTP_PROXY=true; HTTPS_PROXY=true; ALL_PROXY=true; NODE_USE_ENV_PROXY=1"
+                        Write-LauncherLog "Fallback user environment prepared: HTTP_PROXY=true; HTTPS_PROXY=true; ALL_PROXY=true; NODE_USE_ENV_PROXY=1"
                         Write-LauncherLog "Launch method: packaged activation fallback; process and current-user environment temporarily set; --proxy-server arguments preserved"
                         $activatedProcessId = Start-PackagedCodex -Arguments $arguments
                         Write-LauncherLog ("Packaged activation returned process id: {0}" -f $activatedProcessId)

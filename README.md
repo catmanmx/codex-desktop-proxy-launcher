@@ -1,5 +1,7 @@
 ﻿# Codex Desktop Proxy Launcher
 
+当前源码版本：**v0.1.14**（2026-11-11）。兼容打包安装中的 `ChatGPT.exe` 和 `Codex.exe`。
+
 Codex Desktop 专用代理启动器。它用于在 Windows 上让 Codex Desktop 固定通过本地代理端口启动，同时不修改系统代理、不影响其他软件。
 
 This is an unofficial Windows launcher for Codex Desktop. It helps reduce `Reconnecting...`, stuck "thinking", and remote app-server connectivity issues by starting Codex through a dedicated local proxy without changing global system proxy settings.
@@ -98,7 +100,18 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-release.
 构建结果会生成在：
 
 ```text
-dist/codex-desktop-proxy-launcher-v0.1.13.zip
+dist/codex-desktop-proxy-launcher-v0.1.14.zip
+```
+
+## 验证
+
+发布前可在 Windows PowerShell 5.1 中运行以下检查；这些检查不会重启桌面应用：
+
+```powershell
+.\codex-only-proxy-launcher.ps1 -ValidateOnly
+.\scripts\test-desktop-proxy.ps1 -LauncherPath .\codex-only-proxy-launcher.ps1
+.\scripts\test-proxy-mode-detection.ps1 -LauncherPath .\codex-only-proxy-launcher.ps1
+.\scripts\test-log-health.ps1
 ```
 
 ## 维护文档

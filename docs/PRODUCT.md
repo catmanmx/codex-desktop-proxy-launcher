@@ -1,6 +1,6 @@
 ﻿# Codex Desktop Proxy Launcher 产品文档
 
-更新时间：2026-06-23
+更新时间：2026-11-11
 
 ## 产品定位
 
@@ -25,7 +25,9 @@ Codex Desktop Proxy Launcher 是一个非官方 Windows 小工具，用来让 Co
 - `v0.1.10`：专用代理模式会向 Codex 进程注入代理环境变量，目标是让 app-server 子进程也继承代理。
 - `v0.1.11`：direct process 被 WindowsApps 拒绝时，会在 packaged activation 前临时设置启动器进程环境变量，调用后立即恢复。
 - `v0.1.12`：WindowsApps fallback 会在启动前短暂写入当前用户代理环境变量并广播环境变化，等待 Codex app-server 子进程出现后立即按备份恢复，用来让 app-server 继承 `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY`。
-- `v0.1.13`：当前本地开发版。新增日志健康检查面板，启动时做只读轻量检查；Codex 版本变化或可疑时做完整检查；手动止血前必须备份，恢复只删除止血 trigger，不删除备份。
+- `v0.1.13`：新增日志健康检查面板，启动时做只读轻量检查；Codex 版本变化或可疑时做完整检查；手动止血前必须备份，恢复只删除止血 trigger，不删除备份。
+
+- `v0.1.14`：当前源码版本。兼容打包安装的 `ChatGPT.exe` / `Codex.exe`，排除 CLI 重启目标，增加 `NODE_USE_ENV_PROXY=1`，并根据桌面主进程的实际代理参数判断启动模式。
 
 发布前必须重新运行构建，并确认 GitHub Release 中的 ZIP 与源码版本一致。
 
@@ -58,7 +60,7 @@ Codex Desktop Proxy Launcher 是一个非官方 Windows 小工具，用来让 Co
 - 代理 URL。
 - 是否注入 `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY`。
 - WindowsApps fallback 是否短暂写入并恢复当前用户代理环境变量。
-- `Codex.exe` 路径。
+- `ChatGPT.exe` / `Codex.exe` 桌面程序路径。
 - Codex 启动命令。
 - 启动方式：direct process 或 packaged activation fallback。
 

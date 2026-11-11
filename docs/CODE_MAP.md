@@ -1,6 +1,6 @@
 ﻿# 代码维护地图
 
-更新时间：2026-06-23
+更新时间：2026-11-11
 
 ## 为什么不在生产代码里逐行注释
 
@@ -139,8 +139,8 @@ param(...)
 
 注意：
 
-- `Get-CodexProcesses` 会按进程 ID 去重。
-- `Test-CodexProxyModeRunning` 是辅助判断，它依赖最近保存的启动模式，不能证明当前进程一定继承了代理。
+- `Get-CodexProcesses` 只选择 `OpenAI.Codex_*` 打包目录内的 `ChatGPT.exe` / `Codex.exe` 桌面进程，排除 CLI、app-server 和无关应用，并按进程 ID 去重。
+- `Test-CodexProxyModeRunning` 读取当前桌面主进程的命令行，要求代理地址与端口精确匹配；忽略 renderer，读取失败时返回 false。它证明启动参数存在，不代表网络连通或节点稳定。
 
 ### WindowsApps 启动路径
 
@@ -182,6 +182,7 @@ http_proxy
 https_proxy
 all_proxy
 no_proxy
+NODE_USE_ENV_PROXY=1
 ```
 
 WindowsApps 打包版在代理模式下会优先走 direct process 启动，以便注入这些环境变量。若 Windows 拒绝直接启动，则退回 `IApplicationActivationManager`。fallback 前会临时设置当前启动器进程环境变量，激活完成后恢复；这不写入全局用户环境，但能否被 packaged app 继承取决于 Windows 激活行为。

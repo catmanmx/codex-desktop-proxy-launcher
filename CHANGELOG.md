@@ -1,5 +1,12 @@
 ﻿# Changelog
 
+## v0.1.14 — 2026-11-11
+
+- Recognize packaged `ChatGPT.exe` as well as `Codex.exe`, and exclude CLI/app-server and unrelated executables from desktop restart targets.
+- Set `NODE_USE_ENV_PROXY=1` alongside the existing proxy environment for direct startup and packaged activation fallback.
+- Detect proxy mode from the live desktop main-process command line instead of saved launch settings; require an exact port match and ignore renderer processes.
+- Include regression checks for desktop discovery, proxy environment inheritance, and live proxy-mode detection.
+
 ## v0.1.13
 
 - Add a Log Health panel that checks Codex `logs_2.sqlite` status, WAL size, current `MAX(id)`, TRACE ratio, Codex version changes, and existing block triggers.
