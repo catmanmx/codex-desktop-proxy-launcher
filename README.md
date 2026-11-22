@@ -1,6 +1,6 @@
 ﻿# Codex Desktop Proxy Launcher
 
-当前源码版本：**v0.1.14**（2026-11-11）。兼容打包安装中的 `ChatGPT.exe` 和 `Codex.exe`。
+Windows 版本：**v0.1.14**；macOS 源码预览版：**0.1.0**（2026-11-22）。
 
 Codex Desktop 专用代理启动器。它用于在 Windows 上让 Codex Desktop 固定通过本地代理端口启动，同时不修改系统代理、不影响其他软件。
 
@@ -40,6 +40,12 @@ This is an unofficial Windows launcher for Codex Desktop. It helps reduce `Recon
 - 提供手动备份、止血和恢复入口；止血默认不会自动执行
 - 专用代理模式会向 Codex 进程注入代理环境变量；WindowsApps fallback 会短暂托管当前用户代理环境变量，方便 app-server 继承代理
 - 提供产品与维护文档，避免后续迭代混乱
+
+## macOS 版本
+
+Mac 用户请查看 [macOS 使用说明](macos/README.md)，入口是 [codex-proxy-launcher.command](macos/codex-proxy-launcher.command)。提供代理启动、普通启动和连通性检查，仅适用于 Electron 桌面应用；尚待 Mac 实机验证。
+
+以下使用方法及构建说明均针对 Windows。
 
 ## 使用方法
 

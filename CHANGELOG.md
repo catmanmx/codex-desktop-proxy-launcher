@@ -1,5 +1,12 @@
 ﻿# Changelog
 
+## macOS 0.1.0 source preview — 2026-11-22
+
+- Add a Bash 3.2-compatible macOS launcher with proxy, normal, connectivity-test, and interactive menu modes.
+- Discover Electron app bundles, read their executable metadata, and pass proxy settings only to the launched child process.
+- Refuse to launch over an existing selected desktop instance; never force-quit applications or alter system proxy settings.
+- Add isolated behavioral tests and document native ChatGPT limitations and outstanding Mac smoke tests. No macOS installer is published; Windows v0.1.14 is unchanged.
+
 ## v0.1.14 — 2026-11-11
 
 - Recognize packaged `ChatGPT.exe` as well as `Codex.exe`, and exclude CLI/app-server and unrelated executables from desktop restart targets.
